@@ -1891,7 +1891,9 @@ static void battery_chg_update_usb_type_work(struct work_struct *work)
 		}
 		if (pst->prop[USB_ONLINE] == 0) {
 			/*pr_err("lizhijie USB_ONLINE 00000\n");*/
-			if (!((oplus_chg_get_voocphy_support() == ADSP_VOOCPHY &&
+			if (!(((oplus_chg_get_voocphy_support() == ADSP_VOOCPHY ||
+				oplus_chg_get_voocphy_support() == AP_SINGLE_CP_VOOCPHY ||
+				oplus_chg_get_voocphy_support() == AP_DUAL_CP_VOOCPHY) &&
 				g_oplus_chip && g_oplus_chip->mmi_fastchg == 0) || oplus_quirks_keep_connect_status()))
 				usb_psy_desc.type = POWER_SUPPLY_TYPE_UNKNOWN;
 		}
@@ -2538,6 +2540,9 @@ static int usb_psy_get_prop(struct power_supply *psy,
 			    (g_oplus_chip && g_oplus_chip->charger_volt < VBUS_VOTAGE_3000MV)) {
 				schedule_delayed_work(&bcdev->usb_type_work, 0);
 				chg_err("fastchg not, clear usb type: \n");
+			} else if (pval->intval == 0 && g_oplus_chip && g_oplus_chip->mmi_fastchg == 0) {
+				chg_err("mmi_fastchg=0, hold usb online state\n");
+				pval->intval = 1;
 			}
 		} else {
 			if (pval->intval == 0 && g_oplus_chip && g_oplus_chip->mmi_fastchg == 0) {

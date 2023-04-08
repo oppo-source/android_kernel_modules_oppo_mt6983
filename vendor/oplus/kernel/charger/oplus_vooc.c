@@ -2829,12 +2829,13 @@ static int oplus_vooc_convert_fast_chg_type(int fast_chg_type)
 		return fast_chg_type;
 		break;
 
-	case 0x11: /*50w*/
-	case 0x12: /*50w*/
-	case 0x21: /*50w*/
-	case 0x31: /*50w*/
-	case 0x33: /*50w*/
-	case 0x62: /*reserve for svooc*/
+	case 0x11:		/*50w*/
+	case 0x12:		/*50w*/
+	case 0x21:		/*50w*/
+	case 0x23:		/*50w*/
+	case 0x31:		/*50w*/
+	case 0x33:		/*50w*/
+	case 0x62:		/*reserve for svooc*/
 		if (fastchg_pwr_type == FASTCHG_POWER_5V4A_5V6A_VOOC) {
 			return CHARGER_SUBTYPE_FASTCHG_VOOC;
 		} else {
@@ -2842,17 +2843,46 @@ static int oplus_vooc_convert_fast_chg_type(int fast_chg_type)
 		}
 		return CHARGER_SUBTYPE_FASTCHG_VOOC;
 		break;
-
-	case 0x14: /*65w*/
-	case 0x32: /*65W*/
-	case 0x35: /*65w*/
-	case 0x36: /*65w*/
-	case 0x63: /*reserve for svooc 2.0*/
-	case 0x64: /*reserve for svooc 2.0*/
-	case 0x66: /*reserve for svooc 2.0*/
-	case 0x6C: /*reserve for svooc 2.0*/
-	case 0x6D: /*reserve for svooc 2.0*/
-	case 0x6E: /*reserve for svooc 2.0*/
+	case 0x24:		/*55w*/
+	case 0x25:		/*55w*/
+	case 0x26:		/*55w*/
+	case 0x27:		/*55w*/
+		if (fastchg_pwr_type == FASTCHG_POWER_5V4A_5V6A_VOOC) {
+			return CHARGER_SUBTYPE_FASTCHG_VOOC;
+		} else {
+			return fast_chg_type;
+		}
+		return CHARGER_SUBTYPE_FASTCHG_VOOC;
+		break;
+	case 0x14:		/*65w*/
+	case 0x28:		/*65w*/
+	case 0x2A:		/*65w*/
+	case 0x35:		/*65w*/
+	case 0x63:		/*reserve for svooc 2.0*/
+	case 0x66:		/*reserve for svooc 2.0*/
+	case 0x6E:		/*reserve for svooc 2.0*/
+		if (fastchg_pwr_type == FASTCHG_POWER_5V4A_5V6A_VOOC) {
+			return CHARGER_SUBTYPE_FASTCHG_VOOC;
+		} else {
+			return fast_chg_type;
+		}
+		return CHARGER_SUBTYPE_FASTCHG_VOOC;
+		break;
+	case 0x2B:		/*66w*/
+	case 0x36:		/*66w*/
+	case 0x64:		/*66w*/
+		if (fastchg_pwr_type == FASTCHG_POWER_5V4A_5V6A_VOOC) {
+			return CHARGER_SUBTYPE_FASTCHG_VOOC;
+		} else {
+			return fast_chg_type;
+		}
+		return CHARGER_SUBTYPE_FASTCHG_VOOC;
+		break;
+	case 0x2C:		/*67w*/
+	case 0x2D:		/*67w*/
+	case 0x2E:		/*67w*/
+	case 0x6C:		/*67w*/
+	case 0x6D:		/*67w*/
 		if (fastchg_pwr_type == FASTCHG_POWER_5V4A_5V6A_VOOC) {
 			return CHARGER_SUBTYPE_FASTCHG_VOOC;
 		} else {
@@ -2878,46 +2908,97 @@ static int oplus_vooc_convert_fast_chg_type(int fast_chg_type)
 		} else {
 			return CHARGER_SUBTYPE_FASTCHG_VOOC;
 		}
-	case 0x1: /*for adapter AK779*/
-	case 0x13:
-	case 0x19:
-	case 0x29:
-	case 0x41:
-	case 0x42:
-	case 0x43:
-	case 0x44:
-	case 0x45:
-	case 0x46:
+	case 0x1:		/*for adapter AK779*/
+	case 0x13:		/*20W*/
+	case 0x15:		/*20W*/
+	case 0x16:		/*20W*/
+	case 0x45:		/*20W*/
+	case 0x17:		/*30W*/
+	case 0x18:		/*30W*/
+	case 0x19:		/*30W*/
+	case 0x29:		/*30W*/
+	case 0x41:		/*30W*/
+	case 0x42:		/*30W*/
+	case 0x43:		/*30W*/
+	case 0x44:		/*30W*/
+	case 0x46:		/*30W*/
 		return CHARGER_SUBTYPE_FASTCHG_VOOC;
-	case 0x61: /* 11V3A*/
-	case 0x49: /*for 11V3A adapter temp*/
-	case 0x4A: /*for 11V3A adapter temp*/
+	case 0x1A:		/* 11V3A*/
+	case 0x1B:		/* 11V3A*/
+	case 0x61:		/* 11V3A*/
+	case 0x49:		/*for 11V3A adapter temp*/
+	case 0x4A:		/*for 11V3A adapter temp*/
 		if (fastchg_pwr_type == FASTCHG_POWER_5V4A_5V6A_VOOC) {
 			return CHARGER_SUBTYPE_FASTCHG_VOOC;
 		} else {
 			return fast_chg_type;
 		}
 		return CHARGER_SUBTYPE_FASTCHG_VOOC;
-	case 0x65:
-	case 0x4B: /*for 80W adapter temp*/
-	case 0x4C: /*for 80W adapter temp*/
-	case 0x4D: /*for 80W adapter temp*/
-	case 0x4E: /*for 80W adapter temp*/
+	case 0x1C:		/* 44W*/
+	case 0x1D:		/* 44W*/
+	case 0x1E:		/* 44W*/
+	case 0x22:		/* 44W*/
 		if (fastchg_pwr_type == FASTCHG_POWER_5V4A_5V6A_VOOC) {
 			return CHARGER_SUBTYPE_FASTCHG_VOOC;
 		} else {
 			return fast_chg_type;
 		}
 		return CHARGER_SUBTYPE_FASTCHG_VOOC;
-	case 0x69: /*100W*/
-	case 0x6A: /*100W*/
-	case 0x6B: /*100W*/
+	case 0x65:		/*for 80W adapter temp*/
+	case 0x4B:		/*for 80W adapter temp*/
+	case 0x4C:		/*for 80W adapter temp*/
+	case 0x4D:		/*for 80W adapter temp*/
+	case 0x4E:		/*for 80W adapter temp*/
 		if (fastchg_pwr_type == FASTCHG_POWER_5V4A_5V6A_VOOC) {
 			return CHARGER_SUBTYPE_FASTCHG_VOOC;
 		} else {
 			return fast_chg_type;
 		}
 		return CHARGER_SUBTYPE_FASTCHG_VOOC;
+	case 0x37:		/*for 88W*/
+	case 0x38:		/*for 88W*/
+	case 0x39:		/*for 88W*/
+	case 0x3A:		/*for 88W*/
+		if (fastchg_pwr_type == FASTCHG_POWER_5V4A_5V6A_VOOC) {
+			return CHARGER_SUBTYPE_FASTCHG_VOOC;
+		} else {
+			return fast_chg_type;
+		}
+		return CHARGER_SUBTYPE_FASTCHG_VOOC;
+	case 0x3B:		/*100W*/
+	case 0x3C:		/*100W*/
+	case 0x3D:		/*100W*/
+	case 0x3E:		/*100W*/
+	case 0x69:		/*100W*/
+	case 0x6A:		/*100W*/
+		if (fastchg_pwr_type == FASTCHG_POWER_5V4A_5V6A_VOOC) {
+			return CHARGER_SUBTYPE_FASTCHG_VOOC;
+		} else {
+			return fast_chg_type;
+		}
+		return CHARGER_SUBTYPE_FASTCHG_VOOC;
+
+	case 0x32:		/*120W*/
+	case 0x47:		/*120W*/
+	case 0x48:		/*120W*/
+	case 0x6B:		/*120W*/
+		if (fastchg_pwr_type == FASTCHG_POWER_5V4A_5V6A_VOOC) {
+			return CHARGER_SUBTYPE_FASTCHG_VOOC;
+		} else {
+			return fast_chg_type;
+		}
+		return CHARGER_SUBTYPE_FASTCHG_VOOC;
+		break;
+	case 0x51:		/*125W*/
+	case 0x67:		/*125W*/
+	case 0x68:		/*125W*/
+		if (fastchg_pwr_type == FASTCHG_POWER_5V4A_5V6A_VOOC) {
+			return CHARGER_SUBTYPE_FASTCHG_VOOC;
+		} else {
+			return fast_chg_type;
+		}
+		return CHARGER_SUBTYPE_FASTCHG_VOOC;
+		break;
 	default:
 		return CHARGER_SUBTYPE_FASTCHG_SVOOC;
 	}

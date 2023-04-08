@@ -4,7 +4,7 @@
  *
  * function of oplus_omrg module
  *
- * Copyright (c) 2020-2021 Oplus. All rights reserved.
+ * Copyright (c) 2020-2022 Oplus. All rights reserved.
  *
  */
 
@@ -40,8 +40,6 @@
 struct omrg_freq_device {
 	/* copy of cpufreq device's related cpus */
 	cpumask_t cpus;
-	/* used to indicate if any cpu is online */
-	cpumask_t cpus_online;
 	/* cpufreq policy related with this device */
 	struct cpufreq_policy *policy;
 	/* driver pointer of devfreq device */
@@ -784,23 +782,19 @@ unlock:
 	return ret;
 }
 
-/*
- * omrg_cpufreq_register()
- * @policy: the cpufreq policy of the freq domain
- *
- * register omrg freq device for the cpu policy, match it with related omrg
- * device of all rules. omrg_refresh_all_rule will be called to make sure no
- * violation of rule will happen after adding this device.
- *
- * Locking: this function will hold omrg_list_lock during registration, cpu
- * cooling device should be registered after omrg freq device registration.
- */
+
 void omrg_cpufreq_register(struct cpufreq_policy *policy)
+{
+	/* insteaded by policy create notifier*/
+}
+EXPORT_SYMBOL_GPL(omrg_cpufreq_register);
+
+
+static void omrg_policy_create_callback(struct cpufreq_policy *policy)
 {
 	struct omrg_freq_device *freq_dev = NULL;
 	struct device *cpu_dev = NULL;
 	int ret;
-	unsigned int cpu = smp_processor_id();
 	unsigned long flags;
 
 	if (IS_ERR_OR_NULL(policy)) {
@@ -808,7 +802,7 @@ void omrg_cpufreq_register(struct cpufreq_policy *policy)
 		return;
 	}
 
-	cpu_dev = get_cpu_device(cpumask_first(policy->related_cpus));
+	cpu_dev = get_cpu_device(policy->cpu);
 	if (IS_ERR_OR_NULL(cpu_dev)) {
 		pr_err("%s:null cpu device\n", __func__);
 		return;
@@ -817,11 +811,8 @@ void omrg_cpufreq_register(struct cpufreq_policy *policy)
 	spin_lock_irqsave(&omrg_list_lock, flags);
 
 	list_for_each_entry_rcu(freq_dev, &g_omrg_cpufreq_list, node) {
-		if (cpumask_subset(policy->related_cpus, &freq_dev->cpus) ||
-		    freq_dev->np == cpu_dev->of_node) {
-			cpumask_set_cpu(cpu, &freq_dev->cpus_online);
+		if (cpumask_subset(policy->related_cpus, &freq_dev->cpus))
 			goto unlock;
-		}
 	}
 
 	freq_dev = (struct omrg_freq_device *)
@@ -832,7 +823,6 @@ void omrg_cpufreq_register(struct cpufreq_policy *policy)
 	}
 
 	cpumask_copy(&freq_dev->cpus, policy->related_cpus);
-	cpumask_copy(&freq_dev->cpus_online, policy->related_cpus);
 	freq_dev->np = cpu_dev->of_node;
 	freq_dev->amp = CPUFREQ_AMP;
 	freq_dev->cur_freq = policy->cur * CPUFREQ_AMP / KHZ;
@@ -861,7 +851,17 @@ void omrg_cpufreq_register(struct cpufreq_policy *policy)
 		goto remove_min_qos;
 	}
 
+	freq_dev->policy = cpufreq_cpu_get(policy->cpu);
+
+	if (g_omrg_initialized)
+		of_match_omrg_rule(freq_dev);
+
+	list_add_tail_rcu(&freq_dev->node, &g_omrg_cpufreq_list);
+
+	spin_unlock_irqrestore(&omrg_list_lock, flags);
+
 	freq_dev->nb_max.notifier_call = omrg_notifier_max;
+	/* may sleep */
 	ret = freq_qos_add_notifier(&policy->constraints,
 					FREQ_QOS_MAX, &freq_dev->nb_max);
 	if (ret) {
@@ -870,15 +870,8 @@ void omrg_cpufreq_register(struct cpufreq_policy *policy)
 		goto remove_max_qos;
 	}
 
-	freq_dev->policy = cpufreq_cpu_get(policy->cpu);
-
-	list_add_tail_rcu(&freq_dev->node, &g_omrg_cpufreq_list);
-
-	if (g_omrg_initialized)
-		of_match_omrg_rule(freq_dev);
-
-	spin_unlock_irqrestore(&omrg_list_lock, flags);
 	omrg_refresh_all_rule();
+
 	return;
 
 remove_max_qos:
@@ -891,7 +884,7 @@ unlock:
 	spin_unlock_irqrestore(&omrg_list_lock, flags);
 	omrg_refresh_all_rule();
 }
-EXPORT_SYMBOL_GPL(omrg_cpufreq_register);
+
 
 static inline void omrg_freq_dev_detach(struct omrg_freq_device *freq_dev)
 {
@@ -913,65 +906,83 @@ static inline void omrg_freq_dev_detach(struct omrg_freq_device *freq_dev)
 
 static void omrg_kfree_freq_dev(struct rcu_head *rcu)
 {
-	struct omrg_freq_device *freq_dev = container_of(rcu,
-				struct omrg_freq_device, rcu);
+	unsigned long flags;
+	struct omrg_freq_device *freq_dev;
+
+	spin_lock_irqsave(&omrg_list_lock, flags);
+	freq_dev = container_of(rcu, struct omrg_freq_device, rcu);
 
 	omrg_freq_dev_detach(freq_dev);
 	if (freq_dev->policy) {
-		freq_qos_remove_notifier(&freq_dev->policy->constraints,
-					FREQ_QOS_MAX, &freq_dev->nb_max);
-		freq_qos_remove_request(&freq_dev->max_qos_req);
-		freq_qos_remove_request(&freq_dev->min_qos_req);
 		cpufreq_cpu_put(freq_dev->policy);
 		freq_dev->policy = NULL;
 	}
 	kfree(freq_dev);
+	spin_unlock_irqrestore(&omrg_list_lock, flags);
 }
 
-/*
- * omrg_cpufreq_unregister()
- * @policy: the cpufreq policy of the freq domain
- *
- * unregister omrg freq device for the cpu policy, release the connection with
- * related omrg device of all rules, and if this device is master of the rule,
- * update this rule.
- *
- * Locking: this function will hold omrg_list_lock during unregistration, cpu
- * cooling device should be unregistered before omrg freq device unregistration.
- * the caller may hold policy->lock, because there may be other work in worker
- * thread wait for policy->lock, so we can't put destroy_work to work thread
- * and wait for completion of the work, and omrg_rule_update_work need hold
- * hotplug lock to protect against omrg_cpufreq_unregister during hotplug.
- */
+
 void omrg_cpufreq_unregister(struct cpufreq_policy *policy)
+{
+	/* insteaded by policy remove notifier*/
+}
+EXPORT_SYMBOL_GPL(omrg_cpufreq_unregister);
+
+static void omrg_policy_remove_callback(struct cpufreq_policy *policy)
 {
 	struct omrg_freq_device *freq_dev = NULL;
 	bool found = false;
-	int cpu = smp_processor_id();
 	unsigned long flags;
-
-	if (IS_ERR_OR_NULL(policy)) {
-		pr_err("%s:null cpu policy\n", __func__);
-		return;
-	}
 
 	spin_lock_irqsave(&omrg_list_lock, flags);
 	list_for_each_entry_rcu(freq_dev, &g_omrg_cpufreq_list, node) {
-		if (cpumask_test_cpu(cpu, &freq_dev->cpus)) {
-			cpumask_test_and_clear_cpu(cpu, &freq_dev->cpus_online);
-			if (cpumask_empty(&freq_dev->cpus_online)) {
-				found = true;
-				list_del_rcu(&freq_dev->node);
-			}
+		if (cpumask_test_cpu(policy->cpu, &freq_dev->cpus)) {
+			found = true;
+			list_del_rcu(&freq_dev->node);
 			break;
 		}
 	}
 	spin_unlock_irqrestore(&omrg_list_lock, flags);
 
-	if (found)
+	if (found) {
+		/* may sleep */
+		freq_qos_remove_request(&freq_dev->max_qos_req);
+		freq_qos_remove_request(&freq_dev->min_qos_req);
+
+		/* may sleep */
+		freq_qos_remove_notifier(&freq_dev->policy->constraints,
+			FREQ_QOS_MAX, &freq_dev->nb_max);
 		call_rcu(&freq_dev->rcu, omrg_kfree_freq_dev);
+	}
 }
-EXPORT_SYMBOL_GPL(omrg_cpufreq_unregister);
+
+
+static int omrg_policy_nitifier_callback(struct notifier_block *nb,
+						unsigned long val, void *data)
+{
+	struct cpufreq_policy *policy = (struct cpufreq_policy *)data;
+
+	if (IS_ERR_OR_NULL(policy)) {
+		pr_err("%s:null cpu policy\n", __func__);
+		return NOTIFY_DONE;
+	}
+
+	switch (val) {
+	case CPUFREQ_CREATE_POLICY:
+		omrg_policy_create_callback(policy);
+		break;
+	case CPUFREQ_REMOVE_POLICY:
+		omrg_policy_remove_callback(policy);
+		break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block omrg_cpufreq_policy_notifier = {
+	.notifier_call = omrg_policy_nitifier_callback,
+};
+
 
 /*
  * omrg_devfreq_register()
@@ -1095,6 +1106,7 @@ static ssize_t show_ruler_enable(const struct omrg_rule *ruler, char *buf)
 static bool omrg_disable_ruler(struct omrg_rule *ruler)
 {
 	int i;
+	bool ret = true;
 	unsigned int cpu;
 	struct omrg_device *slave = NULL;
 
@@ -1106,20 +1118,27 @@ static bool omrg_disable_ruler(struct omrg_rule *ruler)
 
 		cpu = (unsigned int)cpumask_any_and(
 			&slave->freq_dev->cpus, cpu_online_mask);
-		if (cpu >= (unsigned int)nr_cpu_ids)
-			return false;
+		if (cpu >= (unsigned int)nr_cpu_ids) {
+			ret = false;
+			goto error_out;
+		}
 
 		if (freq_qos_update_request(&slave->freq_dev->min_qos_req,
-				slave->freq_dev->cpuinfo_min_freq / KHZ) < 0)
-			return false;
+				slave->freq_dev->cpuinfo_min_freq / KHZ) < 0) {
+			ret = false;
+			goto error_out;
+		}
 
 		if (freq_qos_update_request(&slave->freq_dev->max_qos_req,
-				slave->freq_dev->cpuinfo_max_freq / KHZ) < 0)
-			return false;
+				slave->freq_dev->cpuinfo_max_freq / KHZ) < 0) {
+			ret = false;
+			goto error_out;
+		}
 	}
 	put_online_cpus();
 
-	return true;
+error_out:
+	return ret;
 }
 
 static ssize_t store_ruler_enable(struct omrg_rule *ruler,
@@ -1410,6 +1429,13 @@ static int omrg_probe(struct platform_device *pdev)
 	if (IS_ERR(g_omrg_work_thread)) {
 		dev_err(dev, "create omrg thread fail\n");
 		ret = PTR_ERR(g_omrg_work_thread);
+		goto err_probe;
+	}
+
+	ret = cpufreq_register_notifier(&omrg_cpufreq_policy_notifier,
+					CPUFREQ_POLICY_NOTIFIER);
+	if (ret) {
+		dev_err(dev, "register cpufreq nb fail\n");
 		goto err_probe;
 	}
 

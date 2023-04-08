@@ -158,6 +158,10 @@
 #include <linux/fb.h>
 #endif
 
+#if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
+#include "../test-kit/test-kit.h"
+#endif
+
 #if IS_ENABLED(CONFIG_DRM_PANEL_NOTIFY) || IS_ENABLED(CONFIG_OPLUS_CHG_DRM_PANEL_NOTIFY)
 #include <linux/soc/qcom/panel_event_notifier.h>
 #include <drm/drm_panel.h>
@@ -539,11 +543,20 @@ typedef enum {
 	DUAL_BATT_50W,
 	DUAL_BATT_65W,
 	SINGLE_BATT_50W,
-	VOOCPHY_33W,
+	VOOCPHY_33W = 5,
 	VOOCPHY_60W,
 	DUAL_BATT_80W,
-	DUAL_BATT_100W,
+	DUAL_BATT_100W = 8,
 	DUAL_BATT_150W,
+	POWER_BANK_66W = 12,
+	POWER_BANK_67W = 13,
+	POWER_BANK_120W = 14,
+	POWER_BANK_44W = 15,
+	DUAL_BATT_240W = 16,
+	POWER_BANK_200W = 17,
+	POWER_BANK_88W = 18,
+	POWER_BANK_55W = 19,
+	POWER_BANK_125W = 20,
 	INVALID_VOOC_PROJECT,
 } OPLUS_VOOC_PROJECT_TYPE;
 
@@ -900,6 +913,13 @@ struct short_c_batt_data {
 	bool shortc_gpio_status;
 };
 
+struct oplus_chg_full_data {
+	bool hw_full;
+	bool sub_hw_full;
+	int vbat_counts_hw;
+	int sub_vbat_counts_hw;
+};
+
 struct reserve_soc_data {
 #define SMOOTH_SOC_MAX_FIFO_LEN	4
 #define SMOOTH_SOC_MIN_FIFO_LEN	1
@@ -1010,6 +1030,7 @@ struct oplus_chg_chip {
 	bool sw_sub_batt_full;
 	bool hw_sub_batt_full_by_sw;
 	bool hw_sub_batt_full;
+	struct oplus_chg_full_data full_data;
 	int temperature;
 	int qc_abnormal_check_count;
 	int tbatt_temp;
@@ -1288,6 +1309,7 @@ struct oplus_chg_chip {
 	int quick_mode_stop_temp;
 	int quick_mode_stop_soc;
 	int quick_mode_need_update;
+	bool quick_mode_gain_support;
 	bool dual_panel_support;
 
 	int uisoc_1_start_batt_rm;
@@ -1359,6 +1381,10 @@ struct oplus_chg_chip {
 	bool full_pre_ffc_judge;
 	int full_pre_ffc_mv;
 	bool boot_reset_adapter;
+#if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
+	struct test_feature *chg_gpio_test;
+	struct test_feature *typec_port_test;
+#endif
 };
 
 #define SOFT_REST_VOL_THRESHOLD		4300
@@ -1479,6 +1505,7 @@ struct oplus_chg_operations {
 	bool (*is_support_qcpd)(void);
 	int (*get_subboard_temp)(void);
 	int (*get_ccdetect_online)(void);
+	int (*check_cc_mode)(void);
 };
 
 int __attribute__((weak))
@@ -1724,5 +1751,8 @@ int oplus_chg_get_fv_when_vooc(struct oplus_chg_chip *chip);
 void oplus_chg_get_aging_ffc_offset(struct oplus_chg_chip *chip,
 	int *ffc1_offset, int *ffc2_offset);
 int oplus_get_ccdetect_online(void);
+#if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
+void oplus_test_kit_unregister(void);
+#endif
 //#endif
 #endif /*_OPLUS_CHARGER_H_*/

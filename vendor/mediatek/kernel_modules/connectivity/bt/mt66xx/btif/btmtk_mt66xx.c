@@ -857,6 +857,7 @@ static int32_t _send_wmt_get_cal_data_cmd(
 		BTMTK_ERR("Unable to get calibration event in time, start dump and reset!");
 		// TODO: FW request dump & reset, need apply to all internal cmdå
 		bt_trigger_reset();
+		up(&cif_dev->internal_cmd_sem);
 		return -1;
 	}
 
@@ -1081,13 +1082,13 @@ int32_t btmtk_intcmd_wmt_send_antenna_cmd(struct hci_dev *hdev)
         dev_prj = get_project();
         if (dev_prj != 0) {
             sprintf(str, "BT_FW_%d.cfg",dev_prj);
-            BTMTK_DBG("%s: try to load [%s]  ", __func__, str);
+            BTMTK_INFO("%s: try to load [%s]  ", __func__, str);
             if (btmtk_load_code_from_bin(&p_img, str, NULL, &len, 2) == -1) {
-                BTMTK_DBG("%s: [%s] file not exist,load [%s]  ", __func__, str, BT_FW_CFG_FILE);
+                BTMTK_INFO("%s: [%s] file not exist,load [%s]  ", __func__, str, BT_FW_CFG_FILE);
                 btmtk_load_code_from_bin(&p_img, BT_FW_CFG_FILE, NULL, &len, 10);
             }
         } else {
-            BTMTK_DBG("%s: load config [%s]", __func__, BT_FW_CFG_FILE);
+            BTMTK_INFO("%s: load config [%s]", __func__, BT_FW_CFG_FILE);
             btmtk_load_code_from_bin(&p_img, BT_FW_CFG_FILE, NULL, &len, 10);
         }
         //#endif /* OPLUS_BUG_STABILITY */
@@ -1096,6 +1097,7 @@ int32_t btmtk_intcmd_wmt_send_antenna_cmd(struct hci_dev *hdev)
 		BTMTK_WARN("%s: get config file fail!", __func__);
 		return 0;
 	}
+	BTMTK_INFO("%s: load config finish [%s]", __func__, BT_FW_CFG_FILE);
 
 	/* find tag: [BT_FW_CFG_TAG][CONNAC20_CHIPID] */
 	if (snprintf(findTag, sizeof(findTag), "%s[%d] ", BT_FW_CFG_TAG, CONNAC20_CHIPID) < 0) {
@@ -1166,6 +1168,8 @@ int32_t btmtk_intcmd_wmt_send_antenna_cmd(struct hci_dev *hdev)
 	p_inter_cmd->pending_cmd_opcode = 0xFC6F;
 	p_inter_cmd->wmt_opcode = WMT_OPCODE_ANT_EFEM;
 	p_inter_cmd->result = WMT_EVT_INVALID;
+
+	BTMTK_INFO("[Before btmtk_main_send_cmd] %s done", __func__);
 
 	btmtk_main_send_cmd(g_sbdev, cmd, len, NULL, 0, 0, 0, BTMTK_TX_WAIT_VND_EVT);
 

@@ -735,7 +735,8 @@ void cgroup_set_sched_assist_boost_task(struct task_struct *p)
 		rq = task_rq_lock(p, &flags);
 
 		ux_state = oplus_get_ux_state(p);
-		if (is_top(p) || sched_assist_scene(SA_ANIM))
+		/* com.android.launcher was UX process even though exit to the background */
+		if (is_top(p) || test_task_ux(p->group_leader))
 			oplus_set_ux_state(p, (ux_state | SA_TYPE_HEAVY));
 		else
 			oplus_set_ux_state(p, (ux_state & ~SA_TYPE_HEAVY));

@@ -46,5 +46,6 @@ void consys_spi_write_offset_range_nolock_mt6983(
 	unsigned int reg_offset, unsigned int value_offset, unsigned int size);
 #endif
 
+void consys_check_ap2conn_mt6983(void);
 #endif /* _PLATFORM_MT6983_POS_H_ */
 

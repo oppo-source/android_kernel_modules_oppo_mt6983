@@ -25,7 +25,7 @@
 #include "sys-memstat.h"
 #include "logger.h"
 
-static is_ashmem_file(struct file *file)
+static bool is_ashmem_file(struct file *file)
 {
 	return false;
 }
@@ -54,6 +54,20 @@ static int match_file(const void *p, struct file *file, unsigned fd)
 
 	ms->nr_fds += 1;
 	return 0;
+}
+
+/*
+ * this should be called without rcu, qcom use read_lock and mtk use mutex
+ * which might sleep.
+ */
+static void __proc_mtrack_memstat(struct proc_ms *ms, pid_t pid, u32 flags)
+{
+	if (flags & PROC_MS_ITERATE_MTRACK) {
+		/* gpu in page_size, so it cannot overflow */
+		ms->gpu = (u32)read_pid_mtrack_mem_usage(MTRACK_GPU,
+							 MTRACK_GPU_PROC_KERNEL,
+							 pid);
+	}
 }
 
 /*
@@ -90,13 +104,6 @@ static int __proc_memstat(struct task_struct *p, struct proc_ms *ms, u32 flags)
 		/* dma_buf size use byte */
 		ms->dmabuf = ms->dmabuf >> PAGE_SHIFT;
 		ms->ashmem = ms->ashmem >> PAGE_SHIFT;
-	}
-
-	if (flags & PROC_MS_ITERATE_MTRACK) {
-		/* gpu in page_size, so it cannot overflow */
-		ms->gpu = (u32)read_pid_mtrack_mem_usage(MTRACK_GPU,
-							 MTRACK_GPU_PROC_KERNEL,
-							 p->pid);
 	}
 
 	mm = tsk->mm;
@@ -150,6 +157,7 @@ static int proc_pid_memstat(unsigned long arg)
 	if (ret)
 		return ret;
 
+	__proc_mtrack_memstat(&ppm.ms, pid, ppm.flags);
 	if (copy_to_user(argp, &ppm, sizeof(ppm)))
 		return -EFAULT;
 
@@ -161,7 +169,7 @@ static int proc_size_memstat(struct file *file, unsigned int cmd, unsigned long 
 	struct logger_reader *reader = file->private_data;
 	struct proc_size_ms psm;
 	struct task_struct *p = NULL;
-	int ret, cnt = 0;
+	int ret, i, cnt = 0;
 
 	void __user *argp = (void __user *) arg;
 
@@ -217,6 +225,11 @@ static int proc_size_memstat(struct file *file, unsigned int cmd, unsigned long 
 	if (copy_to_user(argp, &psm, sizeof(psm))) {
 		ret = -EFAULT;
 		goto err_buf;
+	}
+
+	for (i = 0; i < cnt; i++) {
+		struct proc_ms *ms = reader->arr_ms + i;
+		__proc_mtrack_memstat(ms, ms->pid, psm.flags);
 	}
 
 	/* if cnt is zero, copy nothin. */

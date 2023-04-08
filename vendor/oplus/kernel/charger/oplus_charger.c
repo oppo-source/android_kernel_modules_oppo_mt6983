@@ -231,6 +231,210 @@ static void get_time_interval(void);
 static int aicl_delay_count = 0;
 static bool chg_ctrl_by_sale_mode = false;
 
+#if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
+enum cc_mode_type {
+	MODE_DEFAULT = 0,
+	MODE_SINK,
+	MODE_SRC,
+	MODE_DRP
+};
+enum situations_type {
+	SITUATION_DEFAULT = 0,
+	SITUATION_IDLE,
+	SITUATION_OTG,
+	SITUATION_CHARGING
+};
+
+struct test_kit_typec_port_info g_typec_port_info[] = {
+	{
+		.name = "typec_port_idle",
+		.case_num = 1,
+		.status = MODE_SINK,
+		.situation = SITUATION_IDLE,
+		.dev = NULL,
+	},
+	{}
+};
+
+const struct test_feature_cfg g_typec_port_test_cfg = {
+	.name = "typec_port_test",
+	.test_info = (void *)g_typec_port_info,
+	.test_func = test_kit_typec_port_test,
+};
+
+bool test_kit_typec_port_check(void *info, char *buf, size_t len, size_t *use_size)
+{
+	struct test_kit_typec_port_info *typec_port_info = info;
+	int situation = SITUATION_DEFAULT;
+	bool pass = true;
+	bool val = false;
+
+	pr_err("[TYPEC-PORT-CHECK]: buf is NULL\n");
+	if (info == NULL) {
+		pr_err("[TYPEC-PORT-CHECK]: info is NULL\n");
+		return false;
+	}
+	if (buf == NULL) {
+		pr_err("[TYPEC-PORT-CHECK]: buf is NULL\n");
+		return false;
+	}
+	*use_size = 0;
+
+	if (oplus_chg_get_chging_status() == true)
+		situation = SITUATION_CHARGING;
+	else if (oplus_chg_get_otg_online() == true)
+		situation = SITUATION_OTG;
+	else
+		situation = SITUATION_IDLE;
+
+	if (situation != typec_port_info->situation) {
+		*use_size += snprintf(buf + *use_size, len - *use_size,
+			"[%s][typec check case: %d],situation expected: %d, actually: %d\n",
+			typec_port_info->name, typec_port_info->case_num,
+			typec_port_info->situation, situation);
+		pass = false;
+	}
+
+	if ((g_charger_chip != NULL) && (g_charger_chip->chg_ops != NULL) &&
+		(g_charger_chip->chg_ops->check_cc_mode != NULL)) {
+		pr_err("check_cc_mode exists!\n");
+		val = g_charger_chip->chg_ops->check_cc_mode();
+
+		if (val != typec_port_info->status) {
+			*use_size += snprintf(buf + *use_size, len - *use_size,
+				"[%s][typec check case: %d],status expected: %d, actually: %d\n",
+				typec_port_info->name, typec_port_info->case_num,
+				typec_port_info->status, val);
+			pass = false;
+		}
+		return pass;
+	}
+	else {
+		pr_err("check_cc_mode not exists!\n");
+		pass = false;
+	}
+
+	return pass;
+}
+
+static int oplus_typec_port_test_kit_init(struct oplus_chg_chip *chip)
+{
+	chip->typec_port_test = test_feature_register(&g_typec_port_test_cfg, chip);
+	if (IS_ERR_OR_NULL(chip->typec_port_test))
+		chg_err("typec_port_test register error");
+
+	return 0;
+}
+
+#define DET_DELAY_TIME 5
+#define DET_TESTKIT_MAX_TIMES 3
+#define DET_SUCCESS 0
+static int g_det_typec_count;
+static struct delayed_work det_typec_testkit_work;
+static void oplus_chg_det_typec_testkit_work(struct work_struct *work)
+{
+	int ret;
+
+	ret = 	test_kit_reg_typec_port_check(test_kit_typec_port_check);
+	if (g_det_typec_count < DET_TESTKIT_MAX_TIMES &&
+		ret != DET_SUCCESS) {
+		g_det_typec_count++;
+		pr_err("detect test kit module not ready, redetect! count:%d\n", g_det_typec_count);
+		schedule_delayed_work(&det_typec_testkit_work, msecs_to_jiffies(DET_DELAY_TIME * 1000));
+	} else {
+		pr_err("detect test kit module ready! cancel work\n");
+		cancel_delayed_work_sync(&det_typec_testkit_work);
+	}
+}
+
+#define SWITCH1_GPIO_INFO_INDEX	0
+#define FASTCHG_SWITCH_GPIO_INFO_INDEX	1
+#define UART_TX_GPIO_INFO_INDEX	2
+#define UART_RX_GPIO_INFO_INDEX	3
+struct test_kit_soc_gpio_info g_chg_gpio_info[] = {
+	{
+		.name = "switch1_gpio",
+		.is_out = true,
+		.is_high = false,
+		.func = 0,
+		.pull = 1,/* 0:no pull; 1:pull down;2:pull up */
+		.drive = 2,
+	},
+	{
+		.name = "switch2_gpio",
+		.is_out = true,
+		.is_high = false,
+		.func = 0,
+		.pull = 0,
+		.drive = 2,
+	},
+	{
+		.name = "uart_tx",
+		.is_out = false,
+		.is_high = false,
+		.func = 0,
+		.pull = 1,
+		.drive = 2,
+	},
+	{
+		.name = "uart_rx",
+		.is_out = false,
+		.is_high = false,
+		.func = 0,
+		.pull = 1,
+		.drive = 2,
+	},
+	{}
+};
+
+const struct test_feature_cfg g_chg_gpio_test_cfg = {
+	.name = "chg_gpio_test",
+	.test_info = (void *)g_chg_gpio_info,
+#if IS_ENABLED(CONFIG_OPLUS_CHARGER_MTK)
+	.test_func = test_kit_mtk_soc_gpio_test,
+#else
+	.test_func = test_kit_qcom_soc_gpio_test,
+#endif
+};
+
+static int oplus_chg_gpio_test_kit_init(struct oplus_chg_chip *chip)
+{
+	chip->chg_gpio_test = test_feature_register(&g_chg_gpio_test_cfg, chip);
+	if (IS_ERR_OR_NULL(chip->chg_gpio_test))
+		chg_err("chg_gpio_test register error");
+
+	return 0;
+}
+
+#define DETECT_DELAY_TIME 10
+#define DETECT_TESTKIT_MAX_TIMES 3
+#define DETECT_SUCCESS 0
+static int g_det_gpio_count;
+static struct delayed_work det_gpio_testkit_work;
+static void oplus_chg_det_gpio_testkit_work(struct work_struct *work)
+{
+	int ret;
+
+	pr_info("test_kit detect work\n");
+
+#if IS_ENABLED(CONFIG_OPLUS_CHARGER_MTK)
+	ret = test_kit_reg_mtk_soc_gpio_check(test_kit_mtk_gpio_check);
+#else
+	ret = test_kit_reg_qcom_soc_gpio_check(test_kit_qcom_gpio_check);
+#endif
+
+	if (g_det_gpio_count < DETECT_TESTKIT_MAX_TIMES &&
+		ret != DETECT_SUCCESS) {
+		g_det_gpio_count++;
+		pr_info("detect test kit module not ready, redetect! count:%d\n", g_det_gpio_count);
+		schedule_delayed_work(&det_gpio_testkit_work, msecs_to_jiffies(DETECT_DELAY_TIME * 1000));
+	} else {
+		pr_info("detect test kit module ready! cancel work\n");
+		cancel_delayed_work_sync(&det_gpio_testkit_work);
+	}
+}
+#endif /* CONFIG_OPLUS_CHG_TEST_KIT */
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0))
 static struct timespec current_kernel_time(void)
 {
@@ -1600,17 +1804,16 @@ static long oplus_chg_ioctl(struct file *fp, unsigned code, unsigned long value)
 
 static int oplus_chg_open(struct inode *ip, struct file *fp)
 {
-	chg_err("oplus_chg_open\n");
-	if (atomic_xchg(&g_charger_chip->file_opened, 1))
+	if (atomic_xchg(&g_charger_chip->file_opened, 1)) {
+		chg_err("oplus_chg_open failed\n");
 		return -EBUSY;
+	}
 	fp->private_data = g_charger_chip;
 	return 0;
 }
 
 static int oplus_chg_release(struct inode *ip, struct file *fp)
 {
-	chg_err("oplus_chg_release\n");
-
 	WARN_ON(!atomic_xchg(&g_charger_chip->file_opened, 0));
 	/* indicate that we are disconnected
 	 * still could be online so don't touch online flag
@@ -3148,6 +3351,59 @@ static int oplus_chg_track_init(struct oplus_chg_chip *chip)
 	return rc;
 }
 
+#if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
+void oplus_chg_test_gpio_info_init(struct oplus_chg_chip *chip)
+{
+	struct device_node *node = chip->dev->of_node;
+	struct gpio_chip *gpio_chip;
+	int uart_tx = 0, uart_rx = 0, switch2_gpio = 0;
+
+	if (gpio_is_valid(chip->normalchg_gpio.chargerid_switch_gpio)) {
+		gpio_chip = gpio_to_chip(chip->normalchg_gpio.chargerid_switch_gpio);
+		g_chg_gpio_info[SWITCH1_GPIO_INFO_INDEX].chip = gpio_chip;
+		g_chg_gpio_info[SWITCH1_GPIO_INFO_INDEX].num =
+			chip->normalchg_gpio.chargerid_switch_gpio - gpio_chip->base;
+	}
+	else {
+		g_chg_gpio_info[SWITCH1_GPIO_INFO_INDEX].num = -1;
+	}
+
+	switch2_gpio = of_get_named_gpio(node, "oplus,switch2-ctrl-gpio", 0);
+	if (gpio_is_valid(switch2_gpio)) {
+		gpio_chip = gpio_to_chip(switch2_gpio);
+		g_chg_gpio_info[FASTCHG_SWITCH_GPIO_INFO_INDEX].chip = gpio_chip;
+		g_chg_gpio_info[FASTCHG_SWITCH_GPIO_INFO_INDEX].num =
+			switch2_gpio - gpio_chip->base;
+	}
+	else {
+		g_chg_gpio_info[FASTCHG_SWITCH_GPIO_INFO_INDEX].num = -1;
+	}
+
+	uart_tx = of_get_named_gpio(node, "oplus,uart_tx-gpio", 0);
+	if (gpio_is_valid(uart_tx)) {
+		gpio_chip = gpio_to_chip(uart_tx);
+		g_chg_gpio_info[UART_TX_GPIO_INFO_INDEX].chip = gpio_chip;
+		g_chg_gpio_info[UART_TX_GPIO_INFO_INDEX].num =
+			uart_tx - gpio_chip->base;
+	}
+	else {
+		g_chg_gpio_info[UART_TX_GPIO_INFO_INDEX].num = -1;
+	}
+
+	uart_rx = of_get_named_gpio(node, "oplus,uart_rx-gpio", 0);
+	if (gpio_is_valid(uart_rx)) {
+		gpio_chip = gpio_to_chip(uart_rx);
+		g_chg_gpio_info[UART_RX_GPIO_INFO_INDEX].chip = gpio_chip;
+		g_chg_gpio_info[UART_RX_GPIO_INFO_INDEX].num =
+			uart_rx - gpio_chip->base;
+	}
+	else {
+		g_chg_gpio_info[UART_RX_GPIO_INFO_INDEX].num = -1;
+	}
+	chg_err("test_kit gpio switch2  = %d, uart_tx = %d, uart_rx = %d\n", switch2_gpio, uart_tx, uart_rx);
+}
+#endif /* CONFIG_OPLUS_CHG_TEST_KIT */
+
 int oplus_chg_init(struct oplus_chg_chip *chip)
 {
 	int rc = 0;
@@ -3259,6 +3515,16 @@ int oplus_chg_init(struct oplus_chg_chip *chip)
 			chip->notifier_cookie_sec = cookie;
 		}
 	}
+#endif
+
+#if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
+	oplus_chg_test_gpio_info_init(chip);
+	oplus_chg_gpio_test_kit_init(chip);
+	INIT_DELAYED_WORK(&det_gpio_testkit_work, oplus_chg_det_gpio_testkit_work);
+	schedule_delayed_work(&det_gpio_testkit_work, msecs_to_jiffies(DETECT_DELAY_TIME * 1000));
+	oplus_typec_port_test_kit_init(chip);
+	INIT_DELAYED_WORK(&det_typec_testkit_work, oplus_chg_det_typec_testkit_work);
+	schedule_delayed_work(&det_typec_testkit_work, msecs_to_jiffies(DET_DELAY_TIME * 1000));
 #endif
 	oplus_chg_debug_info_init(chip);
 	init_proc_chg_log();
@@ -5081,6 +5347,7 @@ int oplus_chg_parse_charger_dt(struct oplus_chg_chip *chip)
 		chip->tbatt_power_off_cali_temp = 0;
 
 	chip->boot_reset_adapter = of_property_read_bool(node, "oplus,boot_reset_adapter");
+	chip->quick_mode_gain_support = of_property_read_bool(node, "oplus,quick_mode_gain_support");
 	return 0;
 }
 EXPORT_SYMBOL(oplus_chg_parse_charger_dt);
@@ -7063,6 +7330,10 @@ void oplus_chg_variables_reset(struct oplus_chg_chip *chip, bool in)
 	chip->limits.vbatt_pdqc_to_9v_thr = oplus_get_vbatt_pdqc_to_9v_thr();
 	chip->sw_full_count = 0;
 	chip->sw_full = false;
+	chip->full_data.vbat_counts_hw = 0;
+	chip->full_data.sub_vbat_counts_hw = 0;
+	chip->full_data.hw_full = false;
+	chip->full_data.sub_hw_full = false;
 	chip->hw_full_by_sw = false;
 	chip->sw_sub_batt_full_count = 0;
 	chip->sw_sub_batt_full = false;
@@ -7232,6 +7503,10 @@ static void oplus_chg_variables_init(struct oplus_chg_chip *chip)
 	chip->prop_status = POWER_SUPPLY_STATUS_NOT_CHARGING;
 	chip->sw_full_count = 0;
 	chip->sw_full = false;
+	chip->full_data.vbat_counts_hw = 0;
+	chip->full_data.sub_vbat_counts_hw = 0;
+	chip->full_data.hw_full = false;
+	chip->full_data.sub_hw_full = false;
 	chip->hw_full_by_sw = false;
 	chip->sw_sub_batt_full_count = 0;
 	chip->sw_sub_batt_full = false;
@@ -8919,7 +9194,7 @@ static void oplus_chg_update_ui_soc(struct oplus_chg_chip *chip)
 
 #ifndef CONFIG_DISABLE_OPLUS_FUNCTION
 	if ((get_eng_version() == HIGH_TEMP_AGING || get_eng_version() == AGING || oplus_is_ptcrb_version()) &&
-	    (chip->smooth_soc > 0 && chip->smooth_soc <= 100)) {
+	    (chip->smooth_soc >= 0 && chip->smooth_soc <= 100)) {
 		chg_err(" HIGH_TEMP_AGING/AGING,force ui_soc = smooth_soc \n");
 		chip->ui_soc = chip->smooth_soc;
 		soc_up_count = -1;
@@ -9616,12 +9891,10 @@ static int oplus_chg_check_sw_full(struct oplus_chg_chip *chip)
 static int oplus_chg_check_hw_full(struct oplus_chg_chip *chip)
 {
 	int vbatt_full_vol_hw = 0;
-	static int vbat_counts_hw = 0;
-	static bool ret_hw = false;
 
 	if (!chip->charger_exist) {
-		vbat_counts_hw = 0;
-		ret_hw = false;
+		chip->full_data.vbat_counts_hw = 0;
+		chip->full_data.hw_full = false;
 		chip->hw_full_by_sw = false;
 		return false;
 	}
@@ -9639,8 +9912,8 @@ static int oplus_chg_check_hw_full(struct oplus_chg_chip *chip)
 	} else if (chip->tbatt_status == BATTERY_STATUS__WARM_TEMP) {
 		vbatt_full_vol_hw = chip->limits.temp_warm_vfloat_mv + chip->limits.non_normal_vterm_hw_inc;
 	} else {
-		vbat_counts_hw = 0;
-		ret_hw = 0;
+		chip->full_data.vbat_counts_hw = 0;
+		chip->full_data.hw_full = false;
 		chip->hw_full_by_sw = false;
 		return false;
 	}
@@ -9652,18 +9925,18 @@ static int oplus_chg_check_hw_full(struct oplus_chg_chip *chip)
 	}
 	/* use HW Vfloat to check */
 	if (chip->batt_volt >= vbatt_full_vol_hw) {
-		vbat_counts_hw++;
-		if (vbat_counts_hw >= FULL_COUNTS_HW) {
-			vbat_counts_hw = 0;
-			ret_hw = true;
+		chip->full_data.vbat_counts_hw++;
+		if (chip->full_data.vbat_counts_hw >= FULL_COUNTS_HW) {
+			chip->full_data.vbat_counts_hw = 0;
+			chip->full_data.hw_full = true;
 		}
 	} else {
-		vbat_counts_hw = 0;
-		ret_hw = false;
+		chip->full_data.vbat_counts_hw = 0;
+		chip->full_data.hw_full = false;
 	}
 
-	chip->hw_full_by_sw = ret_hw;
-	return ret_hw;
+	chip->hw_full_by_sw = chip->full_data.hw_full;
+	return chip->full_data.hw_full;
 }
 
 static int oplus_chg_check_sw_sub_batt_full(struct oplus_chg_chip *chip)
@@ -9738,12 +10011,10 @@ static int oplus_chg_check_sw_sub_batt_full(struct oplus_chg_chip *chip)
 static int oplus_chg_check_hw_sub_batt_full(struct oplus_chg_chip *chip)
 {
 	int sub_vbatt_full_vol_hw = 0;
-	static int sub_vbat_counts_hw = 0;
-	static bool sub_ret_hw = false;
 
 	if (!chip->charger_exist) {
-		sub_vbat_counts_hw = 0;
-		sub_ret_hw = false;
+		chip->full_data.sub_vbat_counts_hw = 0;
+		chip->full_data.sub_hw_full = false;
 		chip->hw_sub_batt_full_by_sw = false;
 		return false;
 	}
@@ -9766,8 +10037,8 @@ static int oplus_chg_check_hw_sub_batt_full(struct oplus_chg_chip *chip)
 	} else if (chip->tbatt_status == BATTERY_STATUS__WARM_TEMP) {
 		sub_vbatt_full_vol_hw = chip->limits.temp_warm_vfloat_mv + chip->limits.non_normal_vterm_hw_inc;
 	} else {
-		sub_vbat_counts_hw = 0;
-		sub_ret_hw = 0;
+		chip->full_data.sub_vbat_counts_hw = 0;
+		chip->full_data.sub_hw_full = false;
 		chip->hw_sub_batt_full_by_sw = false;
 		return false;
 	}
@@ -9784,18 +10055,18 @@ static int oplus_chg_check_hw_sub_batt_full(struct oplus_chg_chip *chip)
 #endif
 	/* use HW Vfloat to check */
 	if (chip->sub_batt_volt >= sub_vbatt_full_vol_hw) {
-		sub_vbat_counts_hw++;
-		if (sub_vbat_counts_hw >= FULL_COUNTS_HW) {
-			sub_vbat_counts_hw = 0;
-			sub_ret_hw = true;
+		chip->full_data.sub_vbat_counts_hw++;
+		if (chip->full_data.sub_vbat_counts_hw >= FULL_COUNTS_HW) {
+			chip->full_data.sub_vbat_counts_hw = 0;
+			chip->full_data.sub_hw_full = true;
 		}
 	} else {
-		sub_vbat_counts_hw = 0;
-		sub_ret_hw = false;
+		chip->full_data.sub_vbat_counts_hw = 0;
+		chip->full_data.sub_hw_full = false;
 	}
 
-	chip->hw_sub_batt_full_by_sw = sub_ret_hw;
-	return sub_ret_hw;
+	chip->hw_sub_batt_full_by_sw = chip->full_data.sub_hw_full;
+	return chip->full_data.sub_hw_full;
 }
 #define FFC_VOLT_COUNTS 4
 #define FFC_CURRENT_COUNTS 3
@@ -11459,8 +11730,8 @@ static void oplus_chg_update_work(struct work_struct *work)
 	oplus_chg_cool_down_match_err_check(chip);
 	oplus_chg_other_thing(chip);
 	/* run again after interval */
-	if (!timer_pending(&chip->update_work.timer) && chip->charger_type != POWER_SUPPLY_TYPE_UNKNOWN) {
-		mod_delayed_work(system_highpri_wq, &chip->update_work,
+	if (timer_pending(&chip->update_work.timer) && !delayed_work_pending(&chip->update_work)) {
+		mod_delayed_work(system_wq, &chip->update_work,
 				 OPLUS_CHG_UPDATE_INTERVAL(oplus_chg_update_slow(chip)));
 	} else {
 		schedule_delayed_work(&chip->update_work, OPLUS_CHG_UPDATE_INTERVAL(oplus_chg_update_slow(chip)));
@@ -13985,14 +14256,9 @@ static void quick_mode_check(void)
 		printk(KERN_ERR "[OPLUS_CHG][%s]: oplus_chip not ready!\n", __func__);
 		return;
 	}
-	if (!chip) {
-		chg_err("%s, g_pps_chip null!\n", __func__);
-		return;
-	}
 
-	if ((oplus_pps_get_support_type() != PPS_SUPPORT_2CP || oplus_pps_get_chg_status() != PPS_CHARGERING) &&
-		(oplus_chg_get_voocphy_support() != ADSP_VOOCPHY)) {
-		chg_err("%s, not pps or not adsp_voocphy!\n", __func__);
+	if (!chip->quick_mode_gain_support) {
+		chg_err("%s, not support!\n", __func__);
 		return;
 	}
 
@@ -14035,6 +14301,21 @@ static void quick_mode_check(void)
 		}
 	} else {
 		gain_time_ms = ((current_cool_down * diff_time * 1000) / current_normal_cool_down) - (diff_time * 1000);
+	}
+
+	if (current_cool_down == current_normal_cool_down) {
+		gain_time_ms = 0;
+	} else if (current_cool_down == 0) {
+		if (current_normal_cool_down < batt_curve_current)
+			gain_time_ms = ((batt_curve_current * diff_time * 1000) / current_normal_cool_down) -
+				(diff_time * 1000);
+		else
+			gain_time_ms = 0;
+	}
+
+	if (gain_time_ms < 0) {
+		chg_err("%s:gain_time_ms:%d, force set 0 \n", __func__, gain_time_ms);
+		gain_time_ms = 0;
 	}
 
 	chip->quick_mode_gain_time_ms = chip->quick_mode_gain_time_ms + gain_time_ms;
@@ -14082,3 +14363,20 @@ int oplus_get_ccdetect_online(void) {
 	return online;
 }
 
+#if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
+void oplus_test_kit_unregister(void)
+{
+	if (IS_ERR_OR_NULL(g_charger_chip))
+		return;
+	if (!IS_ERR_OR_NULL(g_charger_chip->chg_gpio_test)) {
+		test_kit_unreg_mtk_soc_gpio_check();
+		test_kit_unreg_qcom_soc_gpio_check();
+		test_feature_unregister(g_charger_chip->chg_gpio_test);
+	}
+
+	if (!IS_ERR_OR_NULL(g_charger_chip->typec_port_test)) {
+		test_kit_unreg_typec_port_check();
+		test_feature_unregister(g_charger_chip->typec_port_test);
+	}
+}
+#endif

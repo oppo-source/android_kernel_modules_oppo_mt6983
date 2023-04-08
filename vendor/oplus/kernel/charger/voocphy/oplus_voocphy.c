@@ -2493,7 +2493,10 @@ int oplus_voocphy_handle_ask_bat_model_process_cmd(struct oplus_voocphy_manager 
 			} else {
 				if (chip->fastchg_real_allow) {
 					chip->fastchg_allow = true; //batt allow dchg
-					chip->fastchg_start = true; //fastchg_start true
+					if (oplus_voocphy_get_bidirect_cp_support())
+						chip->fastchg_start = false;
+					else
+						chip->fastchg_start = true;
 					chip->fastchg_to_warm = false;
 					chip->fastchg_dummy_start = false;
 					oplus_voocphy_set_status_and_notify_ap(chip, FAST_NOTIFY_PRESENT);
@@ -3873,6 +3876,7 @@ void oplus_voocphy_handle_voocphy_status(struct work_struct *work)
 		//check fastchg out
 		oplus_voocphy_wake_check_chg_out_work(3000);
 		oplus_chg_wake_update_work();
+		oplus_chg_unsuspend_charger();
 		if (oplus_chg_check_disable_charger() != false)
 			oplus_chg_disable_charge();
 	} else if (intval == FAST_NOTIFY_BATT_TEMP_OVER) {
@@ -7649,6 +7653,9 @@ int oplus_voocphy_get_batt_curve_current(void)
 				voocphy_err("%s: Weakly defined functions should not be used\n", __func__);
 				return 100;
 			}
+		} else if (oplus_chg_get_voocphy_support() == AP_SINGLE_CP_VOOCPHY
+				|| oplus_chg_get_voocphy_support() == AP_DUAL_CP_VOOCPHY) {
+			return chip->current_expect * 100;
 		} else {
 			rc = oplus_gauge_get_batt_current();
 		}

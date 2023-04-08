@@ -259,7 +259,23 @@ void dump_mali_usage_stat(bool verbose)
 
 long read_pid_mali_mem_usage(enum mtrack_subtype mtype, pid_t pid)
 {
-	return 0;
+	struct kbase_device *kbdev = (struct kbase_device *)mtk_common_get_kbdev();
+	struct kbase_context *kctx;
+	unsigned long sz = 0;
+
+	if (IS_ERR_OR_NULL(kbdev))
+		return 0;
+
+	mutex_lock(&kbdev->kctx_list_lock);
+	list_for_each_entry(kctx, &kbdev->kctx_list, kctx_list_link) {
+		if (kctx->tgid == pid) {
+			sz = atomic_read(&(kctx->used_pages));
+			break;
+		}
+	}
+	mutex_unlock(&kbdev->kctx_list_lock);
+
+	return sz;
 }
 
 static struct mtrack_debugger mali_mtrack_debugger = {

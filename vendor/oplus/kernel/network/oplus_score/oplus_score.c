@@ -1235,11 +1235,9 @@ static int oplus_score_netlink_rcv_msg(struct sk_buff *skb, struct genl_info *in
 	genlhdr = nlmsg_data(nlhdr);
 	nla = genlmsg_data(genlhdr);
 
-	if (oplus_score_user_pid == 0) {
-		oplus_score_user_pid = nlhdr->nlmsg_pid;
-		if (oplus_score_debug) {
-			printk("[oplus_score]:set oplus_score_user_pid=%u.\n", oplus_score_user_pid);
-		}
+	oplus_score_user_pid = nlhdr->nlmsg_pid;
+	if (oplus_score_debug) {
+		printk("[oplus_score]:set oplus_score_user_pid=%u.\n", oplus_score_user_pid);
 	}
 
 	/* to do: may need to some head check here*/

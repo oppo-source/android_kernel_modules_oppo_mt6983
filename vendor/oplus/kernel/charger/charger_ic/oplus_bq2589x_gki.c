@@ -103,6 +103,7 @@ extern void oplus_mt6789_usbtemp_set_typec_sinkonly(void);
 
 #define BQ2589X_INP_VOL_4V4	4400
 #define BQ2589X_INP_VOL_4V5	4500
+#define BQ2589X_INP_VOL_4V6	4600
 #define BQ2589X_CHG_CURR_512MA	512
 
 #define BQ2589X_PART_NO		0x03
@@ -133,6 +134,7 @@ struct bq2589x_pep20_efficiency_table {
 #define BATT_VOL_4V25	4250
 #define BATT_VOL_4V3	4300
 #define BATT_VOL_4V4	4400
+#define BATT_VOL_4V14	4140
 
 #define BQ2589X_INP_CURR_700MA	700
 #define BQ2589X_INP_CURR_500MA	500
@@ -1644,6 +1646,8 @@ static int bq2589x_register_interrupt(struct device_node *np, struct bq2589x *bq
 static int bq2589x_init_device(struct bq2589x *bq)
 {
 	int ret;
+	int vbatt = 0;
+	struct oplus_chg_chip *chip = g_oplus_chip;
 
 	bq2589x_disable_watchdog_timer(bq);
 	bq->is_force_dpdm = false;
@@ -1684,7 +1688,17 @@ static int bq2589x_init_device(struct bq2589x *bq)
 		chg_err("Failed to start adc, ret = %d\n", ret);
 	}
 
-	ret = bq2589x_set_input_volt_limit(bq, BQ2589X_INP_VOL_4V4);
+	if (chip) {
+		vbatt = chip->batt_volt;
+	}
+
+	if (vbatt > BATT_VOL_4V3) {
+		ret = bq2589x_set_input_volt_limit(bq, BQ2589X_INP_VOL_4V6);
+	} else if (vbatt > BATT_VOL_4V14) {
+		ret = bq2589x_set_input_volt_limit(bq, BQ2589X_INP_VOL_4V5);
+	} else {
+		ret = bq2589x_set_input_volt_limit(bq, BQ2589X_INP_VOL_4V4);
+	}
 	if (ret) {
 		chg_err("Failed to set input volt limit, ret = %d\n", ret);
 	}
@@ -2351,10 +2365,18 @@ int oplus_bq2589x_kick_wdt(void)
 
 void oplus_bq2589x_set_mivr(int vbatt)
 {
-	if(g_bq->hw_aicl_point == 4400 && vbatt > BATT_VOL_4V25) {
-		g_bq->hw_aicl_point = 4500;
-	} else if (g_bq->hw_aicl_point == 4500 && vbatt < BATT_VOL_4V15) {
-		g_bq->hw_aicl_point = 4400;
+	if (vbatt > BATT_VOL_4V3) {
+		if (g_bq->hw_aicl_point != BQ2589X_INP_VOL_4V6)
+			g_bq->hw_aicl_point = BQ2589X_INP_VOL_4V6;
+	} else if (vbatt > BATT_VOL_4V14) {
+		if (g_bq->hw_aicl_point == BQ2589X_INP_VOL_4V6 && vbatt < BATT_VOL_4V25) {
+			g_bq->hw_aicl_point = BQ2589X_INP_VOL_4V5;
+		} else if (g_bq->hw_aicl_point == BATT_VOL_4V4) {
+			g_bq->hw_aicl_point = BQ2589X_INP_VOL_4V5;
+		}
+	} else {
+		if (g_bq->hw_aicl_point != BATT_VOL_4V4)
+			g_bq->hw_aicl_point = BATT_VOL_4V4;
 	}
 
 	bq2589x_set_input_volt_limit(g_bq, g_bq->hw_aicl_point);
@@ -2374,11 +2396,11 @@ void oplus_bq2589x_set_mivr_by_battery_vol(void)
 	}
 
 	if(vbatt > BATT_VOL_4V3) {
-		mV = vbatt + 400;
-	} else if (vbatt > BATT_VOL_4V2) {
-		mV = vbatt + 300;
+		mV = BQ2589X_INP_VOL_4V6;
+	} else if (vbatt > BATT_VOL_4V14) {
+		mV = BQ2589X_INP_VOL_4V5;
 	} else {
-		mV = vbatt + 200;
+		mV = BATT_VOL_4V4;
 	}
 
 	if(mV < BATT_VOL_4V4)
@@ -2703,11 +2725,22 @@ int oplus_bq2589x_charging_enable(void)
 
 int oplus_bq2589x_charging_disable(void)
 {
+	int vbatt = 0;
+	struct oplus_chg_chip *chip = g_oplus_chip;
 	chg_debug(" disable");
 
+	if (chip) {
+		vbatt = chip->batt_volt;
+	}
 	bq2589x_disable_watchdog_timer(g_bq);
 	g_bq->pre_current_ma = -1;
-	g_bq->hw_aicl_point = 4400;
+	if (vbatt > BATT_VOL_4V3) {
+		g_bq->hw_aicl_point = BQ2589X_INP_VOL_4V6;
+	} else if (vbatt > BATT_VOL_4V14) {
+		g_bq->hw_aicl_point = BQ2589X_INP_VOL_4V5;
+	} else {
+		g_bq->hw_aicl_point = BATT_VOL_4V4;
+	}
 	bq2589x_set_input_volt_limit(g_bq, g_bq->hw_aicl_point);
 
 	return bq2589x_disable_charger(g_bq);
@@ -2716,10 +2749,22 @@ int oplus_bq2589x_charging_disable(void)
 int oplus_bq2589x_hardware_init(void)
 {
 	int ret = 0;
+	int vbatt = 0;
+	struct oplus_chg_chip *chip = g_oplus_chip;
+
+	if (chip) {
+		vbatt = chip->batt_volt;
+	}
 
 	chg_info(" init ");
 
-	g_bq->hw_aicl_point = 4400;
+	if (vbatt > BATT_VOL_4V3) {
+		g_bq->hw_aicl_point = BQ2589X_INP_VOL_4V6;
+	} else if (vbatt > BATT_VOL_4V14) {
+		g_bq->hw_aicl_point = BQ2589X_INP_VOL_4V5;
+	} else {
+		g_bq->hw_aicl_point = BATT_VOL_4V4;
+	}
 	bq2589x_set_input_volt_limit(g_bq, g_bq->hw_aicl_point);
 
 	/* Enable charging */

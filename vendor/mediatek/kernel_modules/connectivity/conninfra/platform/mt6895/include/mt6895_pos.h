@@ -45,6 +45,6 @@ void consys_spi_write_offset_range_nolock_mt6895(
 	enum sys_spi_subsystem subsystem, unsigned int addr, unsigned int value,
 	unsigned int reg_offset, unsigned int value_offset, unsigned int size);
 #endif
-
+void consys_check_ap2conn_mt6895(void);
 #endif /* _PLATFORM_MT6895_POS_H_ */
 

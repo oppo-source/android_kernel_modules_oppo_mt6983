@@ -2256,7 +2256,6 @@ static int wls_psy_get_prop(struct power_supply *psy,
 	int rc = 0;
 
 	if (!chip || !is_wls_ocm_available(chip)) {
-		chg_err("wireless mod not found\n");
 		return -ENODEV;
 	}
 
@@ -7221,10 +7220,28 @@ static int oplus_chg_set_input_current(int current_ma)
 	if (chg_vol < aicl_point) {
 		chg_debug("use 500 here\n");
 		goto aicl_end;
-	} else if (current_ma < 900)
+	} else if (current_ma < 800)
 		goto aicl_end;
 
-	i = 2; /* 900 */
+	i = 2; /* 800 */
+	rc = write_property_id(bcdev, pst, prop_id, usb_icl[i] * 1000);
+	if (rc) {
+		chg_err("set icl to %d mA fail, rc=%d\n", usb_icl[i], rc);
+	} else {
+		chg_err("set icl to %d mA\n", usb_icl[i]);
+	}
+	usleep_range(50000, 51000);
+	if (qpnp_get_prop_vbus_collapse_status() == true) {
+		i = i - 1;
+		goto aicl_boost_back;
+	}
+	chg_vol = qpnp_get_prop_charger_voltage_now();
+	if (chg_vol < aicl_point) {
+		i = i - 1;
+		goto aicl_pre_step;
+	}
+
+	i = 3; /* 1000 */
 	rc = write_property_id(bcdev, pst, prop_id, usb_icl[i] * 1000);
 	if (rc) {
 		chg_err("set icl to %d mA fail, rc=%d\n", usb_icl[i], rc);
@@ -7243,25 +7260,7 @@ static int oplus_chg_set_input_current(int current_ma)
 	} else if (current_ma < 1200)
 		goto aicl_end;
 
-	i = 3; /* 1200 */
-	rc = write_property_id(bcdev, pst, prop_id, usb_icl[i] * 1000);
-	if (rc) {
-		chg_err("set icl to %d mA fail, rc=%d\n", usb_icl[i], rc);
-	} else {
-		chg_err("set icl to %d mA\n", usb_icl[i]);
-	}
-	usleep_range(50000, 51000);
-	if (qpnp_get_prop_vbus_collapse_status() == true) {
-		i = i - 1;
-		goto aicl_boost_back;
-	}
-	chg_vol = qpnp_get_prop_charger_voltage_now();
-	if (chg_vol < aicl_point) {
-		i = i - 1;
-		goto aicl_pre_step;
-	}
-
-	i = 4; /* 1350 */
+	i = 4; /* 1200 */
 	rc = write_property_id(bcdev, pst, prop_id, usb_icl[i] * 1000);
 	if (rc) {
 		chg_err("set icl to %d mA fail, rc=%d\n", usb_icl[i], rc);
@@ -7277,7 +7276,8 @@ static int oplus_chg_set_input_current(int current_ma)
 	if (chg_vol < aicl_point) {
 		i = i - 2;
 		goto aicl_pre_step;
-	}
+	} else if (current_ma < 1500)
+		goto aicl_end;
 
 	i = 5; /* 1500 */
 	rc = write_property_id(bcdev, pst, prop_id, usb_icl[i] * 1000);
@@ -7288,16 +7288,13 @@ static int oplus_chg_set_input_current(int current_ma)
 	}
 	usleep_range(50000, 51000);
 	if (qpnp_get_prop_vbus_collapse_status() == true) {
-		i = i - 3;
+		i = i - 2;
 		goto aicl_boost_back;
 	}
 	chg_vol = qpnp_get_prop_charger_voltage_now();
 	if (chg_vol < aicl_point) {
-		i = i - 3; /*We DO NOT use 1.2A here*/
+		i = i - 2; /*We DO NOT use 1.2A here*/
 		goto aicl_pre_step;
-	} else if (current_ma < 1500) {
-		i = i - 2; /*We use 1.2A here*/
-		goto aicl_end;
 	} else if (current_ma < 2000)
 		goto aicl_end;
 
@@ -7310,12 +7307,12 @@ static int oplus_chg_set_input_current(int current_ma)
 	}
 	usleep_range(50000, 51000);
 	if (qpnp_get_prop_vbus_collapse_status() == true) {
-		i = i - 3;
+		i = i - 2;
 		goto aicl_boost_back;
 	}
 	chg_vol = qpnp_get_prop_charger_voltage_now();
 	if (chg_vol < aicl_point) {
-		i = i - 3; /*1.2*/
+		i = i - 2; /*1.2*/
 		goto aicl_pre_step;
 	}
 

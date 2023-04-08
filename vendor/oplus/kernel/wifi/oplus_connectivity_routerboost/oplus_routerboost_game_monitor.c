@@ -97,7 +97,11 @@ static int is_game_monitor_interface(char *dev_name)
 		return 0;
 	}
 
-	if (!strcmp(dev_name, detect_ifname)) {
+	if ((detect_ifname[0] == 0) && (detect_ifname[1] == 0)) {
+		/* have not been set detect ifname, monitor all the interface */
+		return 1;
+	} else if (!strcmp(dev_name, detect_ifname)) {
+		/* have been set detect ifname, just monitor the fixed interface */
 		return 1;
 	}
 
@@ -133,8 +137,6 @@ static void detect_game_stream_info(struct sk_buff *skb)
 	int send_msg[10] = {0};
 
 	u32 uid = 0;
-	int srcport = 0;
-	int dstport = 0;
 	unsigned char *dstip = NULL;
 	unsigned char *srcip = NULL;
 
@@ -194,8 +196,6 @@ static void detect_game_stream_info(struct sk_buff *skb)
 	}
 
 	if (iph->protocol == IPPROTO_UDP /*|| iph->protocol == IPPROTO_TCP*/) {
-		dstport = ntohs(udp_hdr(skb)->dest);
-		srcport = ntohs(udp_hdr(skb)->source);
 		dstip = (unsigned char *)&iph->daddr;
 		srcip = (unsigned char *)&iph->saddr;
 

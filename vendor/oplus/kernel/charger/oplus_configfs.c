@@ -27,6 +27,9 @@
 #include "voocphy/oplus_voocphy.h"
 #include "oplus_ufcs.h"
 #include "oplus_quirks.h"
+#ifndef CONFIG_DISABLE_OPLUS_FUNCTION
+#include <soc/oplus/system/oplus_project.h>
+#endif
 
 static struct class *oplus_chg_class;
 static struct device *oplus_ac_dir;
@@ -231,6 +234,7 @@ static ssize_t usbtemp_volt_r_show(struct device *dev, struct device_attribute *
 }
 static DEVICE_ATTR_RO(usbtemp_volt_r);
 
+static int fast_chg_type_by_user = -1;
 static ssize_t fast_chg_type_show(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	struct oplus_chg_chip *chip = NULL;
@@ -249,9 +253,36 @@ static ssize_t fast_chg_type_show(struct device *dev, struct device_attribute *a
 		type = CHARGER_SUBTYPE_DEFAULT;
 	}
 
+	if (fast_chg_type_by_user > 0)
+		type = fast_chg_type_by_user;
 	return sprintf(buf, "%d\n", type);
 }
-static DEVICE_ATTR_RO(fast_chg_type);
+static ssize_t fast_chg_type_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	int val = 0;
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_battery_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	if (kstrtos32(buf, 0, &val)) {
+		chg_err("buf error\n");
+		return -EINVAL;
+	}
+	/*
+	if (get_eng_version() == RELEASE)
+		return count;
+	*/
+
+	fast_chg_type_by_user = val;
+	chg_err("costumer set val [%d], fast_chg_type_by_user [%d]\n", val, fast_chg_type_by_user);
+
+	return count;
+}
+static DEVICE_ATTR_RW(fast_chg_type);
 
 int __attribute__((weak)) oplus_get_typec_cc_orientation(void)
 {
@@ -495,7 +526,34 @@ static ssize_t charge_technology_show(struct device *dev, struct device_attribut
 
 	return sprintf(buf, "%d\n", chip->vooc_project);
 }
-static DEVICE_ATTR_RO(charge_technology);
+
+static ssize_t charge_technology_store(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	int val = 0;
+	struct oplus_chg_chip *chip = NULL;
+
+	chip = (struct oplus_chg_chip *)dev_get_drvdata(oplus_battery_dir);
+	if (!chip) {
+		chg_err("chip is NULL\n");
+		return -EINVAL;
+	}
+
+	if (kstrtos32(buf, 0, &val)) {
+		chg_err("buf error\n");
+		return -EINVAL;
+	}
+	/*
+	if (get_eng_version() == RELEASE)
+		return count;
+	*/
+
+	if (val > NO_VOOC && val < INVALID_VOOC_PROJECT)
+		chip->vooc_project = val;
+	chg_err("costumer set val [%d], new_vooc-project [%d]\n", val, chip->vooc_project);
+
+	return count;
+}
+static DEVICE_ATTR_RW(charge_technology);
 
 #ifdef CONFIG_OPLUS_CHIP_SOC_NODE
 static ssize_t chip_soc_show(struct device *dev, struct device_attribute *attr, char *buf)
@@ -1287,7 +1345,6 @@ static ssize_t ppschg_ing_show(struct device *dev, struct device_attribute *attr
 		&& oplus_voocphy_get_fastchg_start() == 0)
 		val = oplus_pps_get_last_charging_status();
 
-	chg_err("val:%d\n", val);
 	return sprintf(buf, "%d\n", val);
 }
 static DEVICE_ATTR_RO(ppschg_ing);

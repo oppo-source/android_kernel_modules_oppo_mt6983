@@ -17,6 +17,11 @@
 #include <linux/miscdevice.h>
 
 #include "test-kit.h"
+#include "gpiolib.h"
+#include "../oplus_charger.h"
+#if IS_ENABLED(CONFIG_PINCTRL_MTK_V2)
+#include "pinctrl-mtk-common-v2.h"
+#endif
 
 #define STRING_BUF_SIZE		4096
 enum {
@@ -37,15 +42,65 @@ struct test_kit {
 
 	test_kit_gpio_check_func_t qcom_soc_gpio_check;
 	test_kit_gpio_check_func_t qcom_spmi_gpio_check;
+	test_kit_gpio_check_func_t mtk_soc_gpio_check;
+	test_kit_gpio_check_func_t mtk_spmi_gpio_check;
+	test_kit_typec_port_check_func_t typec_port_check;
 };
 
 struct test_kit *g_test_kit;
 
 /* common test func */
+bool test_kit_typec_port_test(struct test_feature *feature,
+				char *buf, size_t len)
+{
+	struct test_kit_typec_port_info *typec_port_info;
+	size_t index = 0;
+	size_t use_size;
+	bool pass = true;
+
+	if (buf == NULL) {
+		pr_err("buf is NULL\n");
+		return false;
+	}
+	if (feature == NULL) {
+		pr_err("feature is NULL\n");
+		index += snprintf(buf + index, len - index, "feature is NULL");
+		return false;
+	}
+	if (g_test_kit == NULL) {
+		pr_err("g_test_kit is NULL\n");
+		index += snprintf(buf + index, len - index,
+				  "g_test_kit is NULL");
+		return false;
+	}
+	if (g_test_kit->typec_port_check == NULL) {
+		pr_err("typec_port_check is NULL\n");
+		index += snprintf(buf + index, len - index,
+				  "typec port check func is NULL");
+		return false;
+	}
+
+	typec_port_info = feature->cfg->test_info;
+	while(typec_port_info->name) {
+		if (!g_test_kit->typec_port_check((void *)typec_port_info,
+		    buf + index, len - index, &use_size))
+			pass = false;
+		index += use_size;
+		if (index >= len) {
+			pr_err("str buf overflow\n");
+			break;
+		}
+		typec_port_info++;
+	}
+
+	return pass;
+}
+EXPORT_SYMBOL(test_kit_typec_port_test);
+
 bool test_kit_qcom_soc_gpio_test(struct test_feature *feature,
 				char *buf, size_t len)
 {
-	struct test_kit_qcom_soc_gpio_info *gpio_info;
+	struct test_kit_soc_gpio_info *gpio_info;
 	size_t index = 0;
 	size_t use_size;
 	bool pass = true;
@@ -88,6 +143,54 @@ bool test_kit_qcom_soc_gpio_test(struct test_feature *feature,
 	return pass;
 }
 EXPORT_SYMBOL(test_kit_qcom_soc_gpio_test);
+
+bool test_kit_mtk_soc_gpio_test(struct test_feature *feature,
+				char *buf, size_t len)
+{
+	struct test_kit_soc_gpio_info *gpio_info;
+	size_t index = 0;
+	size_t use_size;
+	bool pass = true;
+
+	if (buf == NULL) {
+		pr_err("buf is NULL\n");
+		return false;
+	}
+	if (feature == NULL) {
+		pr_err("feature is NULL\n");
+		index += snprintf(buf + index, len - index, "feature is NULL");
+		return false;
+	}
+	if (g_test_kit == NULL) {
+		pr_err("g_test_kit is NULL\n");
+		index += snprintf(buf + index, len - index,
+				  "g_test_kit is NULL");
+		return false;
+	}
+	if (g_test_kit->mtk_soc_gpio_check == NULL) {
+		pr_err("mtk_gpio_check is NULL\n");
+		index += snprintf(buf + index, len - index,
+				  "gpio check func is NULL");
+		return false;
+	}
+
+	gpio_info = feature->cfg->test_info;
+	while(gpio_info->name) {
+		if (!g_test_kit->mtk_soc_gpio_check((void *)gpio_info,
+		    buf + index, len - index, &use_size))
+			pass = false;
+		index += use_size;
+		if (index >= len) {
+			pr_err("str buf overflow\n");
+			break;
+		}
+		gpio_info++;
+	}
+
+	return pass;
+}
+EXPORT_SYMBOL(test_kit_mtk_soc_gpio_test);
+
 
 struct test_feature * __must_check
 test_feature_register(const struct test_feature_cfg *cfg, void *private_data)
@@ -167,6 +270,26 @@ int test_feature_disable(struct test_feature *feature)
 }
 EXPORT_SYMBOL(test_feature_disable);
 
+int test_kit_reg_typec_port_check(test_kit_typec_port_check_func_t func)
+{
+	if (g_test_kit == NULL) {
+		pr_err("g_test_kit is NULL\n");
+		return -ENODEV;
+	}
+
+	g_test_kit->typec_port_check = func;
+	return 0;
+}
+EXPORT_SYMBOL(test_kit_reg_typec_port_check);
+
+void test_kit_unreg_typec_port_check(void)
+{
+	if (g_test_kit == NULL)
+		return;
+	g_test_kit->typec_port_check = NULL;
+}
+EXPORT_SYMBOL(test_kit_unreg_typec_port_check);
+
 int test_kit_reg_qcom_soc_gpio_check(test_kit_gpio_check_func_t func)
 {
 	if (g_test_kit == NULL) {
@@ -206,6 +329,190 @@ void test_kit_unreg_qcom_spmi_gpio_check(void)
 	g_test_kit->qcom_spmi_gpio_check = NULL;
 }
 EXPORT_SYMBOL(test_kit_unreg_qcom_spmi_gpio_check);
+
+int test_kit_reg_mtk_soc_gpio_check(test_kit_gpio_check_func_t func)
+{
+	if (g_test_kit == NULL) {
+		pr_err("g_test_kit is NULL\n");
+		return -ENODEV;
+	}
+
+	g_test_kit->mtk_soc_gpio_check = func;
+	return 0;
+}
+EXPORT_SYMBOL(test_kit_reg_mtk_soc_gpio_check);
+
+void test_kit_unreg_mtk_soc_gpio_check(void)
+{
+	if (g_test_kit == NULL)
+		return;
+	g_test_kit->mtk_soc_gpio_check = NULL;
+}
+EXPORT_SYMBOL(test_kit_unreg_mtk_soc_gpio_check);
+
+int test_kit_reg_mtk_spmi_gpio_check(test_kit_gpio_check_func_t func)
+{
+	if (g_test_kit == NULL) {
+		pr_err("g_test_kit is NULL\n");
+		return -ENODEV;
+	}
+
+	g_test_kit->mtk_spmi_gpio_check = func;
+	return 0;
+}
+EXPORT_SYMBOL(test_kit_reg_mtk_spmi_gpio_check);
+
+void test_kit_unreg_mtk_spmi_gpio_check(void)
+{
+	if (g_test_kit == NULL)
+		return;
+	g_test_kit->mtk_spmi_gpio_check = NULL;
+}
+EXPORT_SYMBOL(test_kit_unreg_mtk_spmi_gpio_check);
+
+bool test_kit_mtk_gpio_check(void *info, char *buf, size_t len, size_t *use_size)
+{
+#if IS_ENABLED(CONFIG_PINCTRL_MTK_V2)
+	const char *pinctrl_name = "pinctrl_mtk_v2";
+	struct test_kit_soc_gpio_info *gpio_info = info;
+	unsigned int pin = ARCH_NR_GPIOS - 1;
+	struct gpio_desc *gdesc = NULL;
+	struct mtk_pinctrl *hw = NULL;
+	const struct mtk_pin_desc *desc = NULL;
+	bool pass = true;
+	int ret = 0;
+	unsigned offset;
+	int val, val_pullen, val_pullsel;
+
+	static const char * const pulls_no_keeper[] = {
+		"no pull",
+		"pull down",
+		"pull up",
+	};
+
+	if (info == NULL) {
+		pr_err("[GPIO-CHECK]: info is NULL\n");
+		return false;
+	}
+	if (buf == NULL) {
+		pr_err("[GPIO-CHECK]: buf is NULL\n");
+		return false;
+	}
+
+	*use_size = 0;
+	offset = gpio_info->num;
+
+	if (!gpio_is_valid(offset)) {
+		pr_err("[GPIO-CHECK]: gpio is unvalid\n");
+		return true;
+	}
+
+	do {
+		gdesc = gpio_to_desc(pin);
+		if (gdesc
+		 && !strncmp(pinctrl_name,
+				gdesc->gdev->chip->label,
+				strlen(pinctrl_name))) {
+			hw = gpiochip_get_data(gdesc->gdev->chip);
+			if (!strcmp(hw->dev->parent->kobj.name, "soc") ||
+			    !strcmp(hw->dev->parent->kobj.name, "platform")) {
+				if (hw->soc->bias_get_combo &&
+				    hw->soc->bias_set_combo) {
+					break;
+				}
+			}
+		}
+		if (gdesc)
+			pin = gdesc->gdev->chip->base - 1;
+		if (pin == 0 || !gdesc) {
+			pr_err("[GPIO-CHECK]: gpio_chip is NULL\n");
+			*use_size += snprintf(buf + *use_size, len - *use_size,
+				"[%s][gpio%u]:gpio_chip is NULL\n",
+				gpio_info->name, offset);
+			return false;
+		}
+	} while (1);
+
+	desc = (const struct mtk_pin_desc *)&hw->soc->pins[offset];
+
+	ret = mtk_hw_get_value(hw, desc, PINCTRL_PIN_REG_DIR, &val);
+	if (ret || val != gpio_info->is_out) {
+		*use_size += snprintf(buf + *use_size, len - *use_size,
+			"[%s][gpio%u][direction error]:expected:%s, actually:%s\n",
+			gpio_info->name, offset,
+			gpio_info->is_out ? "out" : "in",
+			ret ? "null" : (val ? "out" : "in"));
+		pass = false;
+	}
+	if (!ret && val == false) {
+		ret = mtk_pinconf_bias_get_combo(hw, desc, &val_pullsel, &val_pullen);
+		if (ret) {
+			*use_size += snprintf(buf + *use_size, len - *use_size,
+			"[%s][gpio%u][pull error]:expected:%s, actually:%s\n",
+			gpio_info->name, offset,
+			pulls_no_keeper[gpio_info->pull],
+			"null");
+			pass = false;
+		}
+		else if (!val_pullen) {
+			*use_size += snprintf(buf + *use_size, len - *use_size,
+				"[%s][gpio%u][pull error]:expected:%s, actually:%s\n",
+				gpio_info->name, offset,
+				pulls_no_keeper[gpio_info->pull],
+				pulls_no_keeper[0]);
+			pass = false;
+		}
+		else if (val_pullsel + 1 != gpio_info->pull) {
+			*use_size += snprintf(buf + *use_size, len - *use_size,
+				"[%s][gpio%u][pull error]:expected:%s, actually:%s\n",
+				gpio_info->name, offset,
+				pulls_no_keeper[gpio_info->pull],
+				pulls_no_keeper[val_pullsel + 1]);
+			pass = false;
+		}
+	}
+
+	ret = mtk_hw_get_value(hw, desc, PINCTRL_PIN_REG_DO, &val);
+	if (ret || !!val != gpio_info->is_high) {
+		*use_size += snprintf(buf + *use_size, len - *use_size,
+			"[%s][gpio%u][level error]:expected:%s, actually:%s\n",
+			gpio_info->name, offset,
+			gpio_info->is_high ? "high" : "low",
+			ret ? "null" : (val ? "high" : "low"));
+		pass = false;
+	}
+
+	ret = mtk_hw_get_value(hw, desc, PINCTRL_PIN_REG_MODE, &val);
+	if (ret || val != gpio_info->func) {
+		*use_size += snprintf(buf + *use_size, len - *use_size,
+			"[%s][gpio%u][func error]:expected:%d, actually:%d\n",
+			gpio_info->name, offset, gpio_info->func, ret ? -1 : val);
+		pass = false;
+	}
+
+	ret = mtk_hw_get_value(hw, desc, PINCTRL_PIN_REG_DRV, &val);
+	if (!ret)
+		val = 2 + 2*val;
+	if (ret || val != gpio_info->drive) {
+		*use_size += snprintf(buf + *use_size, len - *use_size,
+			"[%s][gpio%u][drive error]:expected:%dmA, actually:%dmA\n",
+			gpio_info->name, offset, gpio_info->drive,
+			ret ? -1 : val);
+		pass = false;
+	}
+
+	return pass;
+#else
+	return false;
+#endif
+}
+EXPORT_SYMBOL(test_kit_mtk_gpio_check);
+
+bool test_kit_qcom_gpio_check(void *info, char *buf, size_t len, size_t *use_size)
+{
+	return false;
+}
+EXPORT_SYMBOL(test_kit_qcom_gpio_check);
 
 static int test_kit_set_index(struct test_kit *test_kit, unsigned int index)
 {

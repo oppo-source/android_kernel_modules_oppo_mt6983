@@ -500,8 +500,27 @@ void consys_update_ap2conn_hclk_mt6895_gen(void)
 		iounmap(vir_addr_consys_gen_topckgen_base);
 }
 
+#define CLK_CFG_20 0x10000150
+#define CONN_PWR_CON 0x1c001e04
+void consys_check_ap2conn_mt6895(void)
+{
+	void __iomem *vir_addr = NULL;
+
+	vir_addr = ioremap(CLK_CFG_20, 0x10);
+	if (vir_addr) {
+		pr_info("%s CLK_CFG_20(%x) = 0x%x\n", __func__, CLK_CFG_20, CONSYS_REG_READ(vir_addr));
+		iounmap(vir_addr);
+	}
+	vir_addr = ioremap(CONN_PWR_CON, 0x10);
+	if (vir_addr) {
+		pr_info("%s CONN_PWR_CON(%x) = 0x%x\n", __func__, CONN_PWR_CON, CONSYS_REG_READ(vir_addr));
+		iounmap(vir_addr);
+	}
+}
+
 int consys_polling_chipid_mt6895_gen(unsigned int *pconsys_ver_id)
 {
+	int r = 0;
 	int check = 0;
 	int retry = 0;
 	unsigned int consys_ver_id = 0;
@@ -511,10 +530,35 @@ int consys_polling_chipid_mt6895_gen(unsigned int *pconsys_ver_id)
 		return -1;
 	}
 
+	mdelay(10);
+	/* Check conn_infra off bus clock */
+	/* - write 0x1 to 0x1802_3000[0], reset clock detect */
+	/* - 0x1802_3000[1]  conn_infra off bus clock (should be 1'b1 if clock exist) */
+	/* - 0x1802_3000[2]  osc clock (should be 1'b1 if clock exist) */
+	while (retry < 10) {
+		CONSYS_SET_BIT(CONN_DBG_CTL_CLOCK_DETECT_ADDR, (0x1 << 0));
+		udelay(20);
+		r = CONSYS_REG_READ_BIT(CONN_DBG_CTL_CLOCK_DETECT_ADDR, ((0x1 << 2) | (0x1 << 1)));
+		if (r == 0x6)
+			break;
+		udelay(1000);
+		retry ++;
+	}
+
+	if (retry > 5)
+		pr_info("%s detect clock, retry = %d", __func__, retry);
+
+	if (r != 0x6) {
+		pr_info("%s detect clock fail:0x1802_3000 = %x\n", __func__, r);
+		consys_print_debug_mt6895(1);
+		return -1;
+	}
+
 	/* check CONN_INFRA IP Version */
 	/* (polling "10 times" for specific project code and each polling interval is "1ms") */
 	retry = 11;
 	while (retry-- > 0) {
+		consys_check_ap2conn_mt6895();
 		consys_ver_id = CONSYS_REG_READ(
 			CONN_CFG_BASE +
 			CONSYS_GEN_IP_VERSION_OFFSET_ADDR);
@@ -552,6 +596,7 @@ unsigned int consys_emi_set_remapping_reg_mt6895_gen(
 		return -1;
 	}
 
+	consys_check_ap2conn_mt6895();
 	/* driver should set the following configuration */
 	if (con_emi_base_addr) {
 		CONSYS_REG_WRITE_OFFSET_RANGE(CONN_BUS_CR_BASE +

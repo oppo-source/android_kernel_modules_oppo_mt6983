@@ -148,10 +148,16 @@ int __attribute__((weak)) oplus_set_bcc_curr_to_voocphy(int bcc_curr)
 {
 	return 0;
 }
+
 #ifdef CONFIG_OPLUS_CHARGER_MTK
 int __attribute__((weak)) oplus_force_get_subboard_temp(void)
 {
 	return 0;
+}
+
+int __attribute__((weak)) oplus_check_cc_mode(void)
+{
+	return -EINVAL;
 }
 #endif
 
@@ -2613,6 +2619,7 @@ struct oplus_chg_operations  mp2650_chg_ops = {
     .get_charger_current = mp2650_get_ibus_current,
     .check_pdphy_ready = oplus_check_pdphy_ready,
     .get_subboard_temp = oplus_force_get_subboard_temp,
+    .check_cc_mode = oplus_check_cc_mode,
 #else /* CONFIG_OPLUS_CHARGER_MTK */
     .get_chargerid_volt = smbchg_get_chargerid_volt,
     .set_chargerid_switch_val = smbchg_set_chargerid_switch_val,

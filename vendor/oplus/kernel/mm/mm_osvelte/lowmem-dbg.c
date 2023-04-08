@@ -449,7 +449,7 @@ static void __lowmem_dbg_dump(struct lowmem_dbg_cfg *cfg)
 	/* 	     K(get_hybridswap_meminfo("pages_stored"))); */
 	osvelte_info("slab_reclaimable: %lu slab_unreclaimable: %lu",
 		     K(slab_reclaimable), K(slab_unreclaimable));
-	osvelte_info("anon: %lu active_anon: %lu inactive_anon: %lu",
+	osvelte_info("anon: %lu active_anon: %lu inactive_anon: %lu\n",
 		     K(anon), K(active_anon), K(inactive_anon));
 	osvelte_info("file: %lu active_file: %lu inactive_file: %lu shmem: %lu\n",
 		     K(file), K(active_file), K(inactive_file), K(shmem));
@@ -552,7 +552,7 @@ int osvelte_lowmem_dbg_init(void)
 	cfg->watermark_dmabuf = PAGES(SZ_2G + SZ_512M);
 	cfg->watermark_gpu = PAGES(SZ_2G + SZ_512M);
 
-	osvelte_info("%s interval: %lu watermark low: %lu anon: %lu ashmem: %lu dmabuf: %lu",
+	osvelte_info("%s interval: %lu watermark low: %lu anon: %lu ashmem: %lu dmabuf: %lu\n",
 		     __func__, cfg->interval, cfg->watermark_low, cfg->watermark_anon,
 		     cfg->watermark_shmem, cfg->watermark_dmabuf);
 	return 0;

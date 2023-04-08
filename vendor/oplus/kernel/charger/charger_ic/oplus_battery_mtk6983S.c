@@ -3308,6 +3308,14 @@ void oplus_usbtemp_recover_cc_open(void)
 	tcpm_typec_disable_function(pinfo->tcpc, false);
 }
 
+void oplus_set_typec_cc_open(void)
+{
+	if (pinfo == NULL || pinfo->tcpc == NULL)
+		return;
+
+	tcpm_typec_disable_function(pinfo->tcpc, true);
+}
+
 static int charger_routine_thread(void *arg)
 {
 	struct mtk_charger *info = arg;
@@ -7179,12 +7187,16 @@ int oplus_chg_set_pd_config(void)
 		ret = tcpm_dpm_pd_request(tcpc, 9000, 2000, NULL);
 		if (ret != TCPM_SUCCESS) {
 			printk(KERN_ERR "%s: tcpm_dpm_pd_request fail\n", __func__);
+			msleep(300);
+			oplus_chg_unsuspend_charger();
 			return -EINVAL;
 		}
 
 		ret = tcpm_inquire_pd_contract(tcpc, &vbus_mv_t, &ibus_ma_t);
 		if (ret != TCPM_SUCCESS) {
 			printk(KERN_ERR "%s: inquire current vbus_mv and ibus_ma fail\n", __func__);
+			msleep(300);
+			oplus_chg_unsuspend_charger();
 			return -EINVAL;
 		}
 
@@ -7202,12 +7214,16 @@ int oplus_chg_set_pd_config(void)
 			ret = tcpm_dpm_pd_request(tcpc, 5000, 2000, NULL);
 			if (ret != TCPM_SUCCESS) {
 				printk(KERN_ERR "%s: tcpm_dpm_pd_request fail\n", __func__);
+				msleep(300);
+				oplus_chg_unsuspend_charger();
 				return -EINVAL;
 			}
 
 			ret = tcpm_inquire_pd_contract(tcpc, &vbus_mv_t, &ibus_ma_t);
 			if (ret != TCPM_SUCCESS) {
 				printk(KERN_ERR "%s: inquire current vbus_mv and ibus_ma fail\n", __func__);
+				msleep(300);
+				oplus_chg_unsuspend_charger();
 				return -EINVAL;
 			}
 
@@ -7269,6 +7285,19 @@ int oplus_chg_get_pd_type(void)
 	return PD_INACTIVE;
 }
 EXPORT_SYMBOL(oplus_chg_get_pd_type);
+
+int oplus_check_cc_mode(void) {
+	int ret = -EINVAL;
+	const char *tcpc_name = "type_c_port0";
+	struct tcpc_device *tcpc_dev;
+	tcpc_dev = tcpc_dev_get_by_name(tcpc_name);
+	if (IS_ERR_OR_NULL(tcpc_dev)) {
+		chg_err("tcpc info error\n");
+		return ret;
+	}
+	ret = tcpm_inquire_typec_role(tcpc_dev);
+	return ret;
+}
 
 int oplus_chg_set_pps_config(int vbus_mv, int ibus_ma)
 {
@@ -8674,6 +8703,8 @@ struct oplus_chg_operations  mtk6375_chg_ops = {
 	.set_typec_cc_open = oplus_usbtemp_set_cc_open,
 	.oplus_usbtemp_monitor_condition = oplus_usbtemp_condition,
 	.check_qchv_condition = oplus_chg_check_qchv_condition,
+	.get_subboard_temp = oplus_force_get_subboard_temp,
+	.check_cc_mode = oplus_check_cc_mode,
 };
 #endif /*OPLUS_FEATURE_CHG_BASIC*/
 
@@ -9123,6 +9154,9 @@ static int mtk_charger_remove(struct platform_device *dev)
 	probe_done = true;
 	//devm_oplus_chg_ic_unregister(bcdev->dev, bcdev->ic_dev);
 	oplus_chg_mod_unregister(info->usb_ocm);
+#if IS_ENABLED(CONFIG_OPLUS_CHG_TEST_KIT)
+	oplus_test_kit_unregister();
+#endif
 #endif
 
 	return 0;

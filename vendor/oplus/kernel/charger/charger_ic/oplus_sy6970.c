@@ -3787,6 +3787,7 @@ struct oplus_chg_operations  oplus_chg_sy6970_ops = {
 	.check_chrdet_status = oplus_sy6970_check_chrdet_status,
 	.set_chargerid_switch_val = smbchg_set_chargerid_switch_val,
 	.get_chargerid_switch_val = smbchg_get_chargerid_switch_val,
+	.check_pdphy_ready = oplus_check_pdphy_ready,
 #ifdef CONFIG_OPLUS_CHARGER_MTK
 	.get_charger_volt = mt6357_get_vbus_voltage,
 	.get_chargerid_volt = oplus_sy6970_get_chargerid_volt,

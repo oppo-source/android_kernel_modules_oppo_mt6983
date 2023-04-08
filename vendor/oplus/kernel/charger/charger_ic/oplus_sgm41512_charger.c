@@ -40,7 +40,7 @@
 #define CHARGER_NORMAL_TEMP_HIGH_REG 0x1C
 #define REG00_SGM41512_INPUT_CURRENT_LIMIT_1400MA 0x0D
 #define HEADSET_PLUG_LIMIT_SOC 80
-
+#define CHARGER_VBUS_VOTLAGE_REF 2600
 #define BC12_RETRY_TIMES 2
 
 extern int oplus_get_rtc_ui_soc(void);
@@ -82,7 +82,6 @@ struct chip_sgm41512 {
 	int 			ibat_last;
 	bool 			charge_normal_temp_high_flag;
 	struct delayed_work check_ibat_work;
-	bool			enable_high_temp_current_limit;
 	int				headset_plugin_flag;
 	int				ui_soc_old;
 	int				input_current_last;
@@ -748,22 +747,6 @@ static int sgm41512_set_rechg_voltage(int recharge_mv)
 	return rc;
 }
 
-static int sgm41512_set_wdt_timer(int reg)
-{
-	int rc = 0;
-	struct chip_sgm41512 *chip = charger_ic;
-
-	if (atomic_read(&chip->charger_suspended) == 1) {
-		pr_err("charger in suspended.\n");
-		return 0;
-	}
-
-	rc = sgm41512_config_interface(chip, REG05_SGM41512_ADDRESS, reg,
-			REG05_SGM41512_WATCHDOG_TIMER_MASK);
-
-	return rc;
-}
-
 static int sgm41512_set_chging_term_disable(void)
 {
 	int rc = 0;
@@ -782,22 +765,9 @@ static int sgm41512_set_chging_term_disable(void)
 
 static int sgm41512_kick_wdt(void)
 {
-	int rc = 0;
-	struct chip_sgm41512 *chip = charger_ic;
-
-	if (atomic_read(&chip->charger_suspended) == 1) {
-		pr_err("charger in suspended.\n");
-		return 0;
-	}
-
-	rc = sgm41512_config_interface(chip, REG01_SGM41512_ADDRESS,
-			REG01_SGM41512_WDT_TIMER_RESET, REG01_SGM41512_WDT_TIMER_RESET_MASK);
-	if (rc < 0) {
-		pr_err("Couldn't sgm41512_kick_wdt rc = %d\n", rc);
-	}
-
-	return rc;
+	return 0;
 }
+
 
 static int sgm41512_enable_charging(void)
 {
@@ -917,7 +887,6 @@ int sgm41512_otg_enable(void)
 		pr_err("sgm41512_otg_enable rc=%d\n", rc);
 	}
 
-	sgm41512_set_wdt_timer(REG05_SGM41512_WATCHDOG_TIMER_DISABLE);
 	oplus_otg_online = 1;
 	oplus_chg_set_otg_online(true);
 	return rc;
@@ -946,7 +915,6 @@ int sgm41512_otg_disable(void)
 	else
 		pr_err("sgm41512_otg_disable rc=%d\n", rc);
 
-	sgm41512_set_wdt_timer(REG05_SGM41512_WATCHDOG_TIMER_40S);
 	oplus_otg_online = 0;
 	oplus_chg_set_otg_online(false);
 
@@ -1006,6 +974,7 @@ static int sgm41512_suspend_charger(void)
 
 	pr_err("suspend sgm41512\n");
 	chip->before_suspend_icl = sgm41512_get_usb_icl();
+	sgm41512_input_current_limit_write(REG00_SGM41512_INPUT_CURRENT_LIMIT_500MA);
 	pr_err("before_suspend_icl = %d\n", chip->before_suspend_icl);
 
 	rc = sgm41512_config_interface(chip, REG00_SGM41512_ADDRESS,
@@ -1021,7 +990,7 @@ static int sgm41512_suspend_charger(void)
 
 static int sgm41512_unsuspend_charger(void)
 {
-	int rc = 0, val_reg = 0, val_buf = 0;
+	int rc = 0, val_reg = 0, val_buf = 0, vbus = 0;
 	struct chip_sgm41512 *chip = charger_ic;
 
 	if (atomic_read(&chip->charger_suspended) == 1) {
@@ -1049,9 +1018,10 @@ static int sgm41512_unsuspend_charger(void)
 	sgm41512_enable_charging();
 	/* trigger once irq  usb plug out*/
 	sgm41512_read_reg(chip, REG0A_SGM41512_ADDRESS, &val_reg);
-	if (((val_reg & REG0A_SGM41512_VBUS_GOOD_STAT_MASK) >>7) == 0) {
-		pr_err("unsuspend sgm41512 trigger once irq val_reg =%d \n", val_reg);
-		schedule_delayed_work(&sgm41512_threaded_irq_work, round_jiffies_relative(msecs_to_jiffies(50)));
+	vbus = battery_get_vbus();
+	if (((val_reg & REG0A_SGM41512_VBUS_GOOD_STAT_MASK) >>7) == 0 && vbus < CHARGER_VBUS_VOTLAGE_REF) {
+		pr_err("unsuspend sgm41512 trigger once irq val_reg =%d vbus=%d\n", val_reg, vbus);
+		schedule_delayed_work(&sgm41512_threaded_irq_work, 0);
 	}
 	return rc;
 }
@@ -1087,7 +1057,7 @@ static int sgm41512_reset_charger(void)
 	if (rc < 0) {
 		pr_err("Couldn't reset REG04 rc = %d\n", rc);
 	}
-	rc = sgm41512_config_interface(chip, REG05_SGM41512_ADDRESS, 0x1F, 0xFF);
+	rc = sgm41512_config_interface(chip, REG05_SGM41512_ADDRESS, 0x0F, 0xFF);
 	if (rc < 0) {
 		pr_err("Couldn't reset REG05 rc = %d\n", rc);
 	}
@@ -1224,8 +1194,6 @@ static int sgm41512_hardware_init(void)
 	}
 
 	sgm41512_enable_charging();
-
-	sgm41512_set_wdt_timer(REG05_SGM41512_WATCHDOG_TIMER_40S);
 
 	return true;
 }
@@ -1425,8 +1393,14 @@ static int sgm41512_set_boost_current_limit(struct charger_device *chg_dev,
 }
 
 static int sgm41512_enable_charger_type_det(struct charger_device *dev, bool en) {
+	bool hiz_status = false;
+	int reg_val = 0;
 	struct chip_sgm41512 *chip = charger_ic;
-	pr_err("%s en=%d\n", __func__, en);
+
+	sgm41512_read_reg(chip, REG00_SGM41512_ADDRESS, &reg_val);
+	hiz_status = (reg_val & REG00_SGM41512_SUSPEND_MODE_MASK) >> 7;
+	pr_err("%s en=%d hiz=%d\n", __func__, en, hiz_status);
+
 	if (!chip) {
 		pr_err("%s chip null,return\n", __func__);
 		return -1;
@@ -1436,6 +1410,10 @@ static int sgm41512_enable_charger_type_det(struct charger_device *dev, bool en)
 		chip->before_suspend_icl = 0;
 	}
 
+	/* SGM41512 set hiz mode and plug out cable */
+	if (en == 0 && hiz_status) {
+		schedule_delayed_work(&sgm41512_threaded_irq_work, 0);
+	}
 	return 0;
 }
 
@@ -1839,7 +1817,6 @@ static int sgm41512_parse_dts(void)
 		return -1;
 	}
 
-	chip->enable_high_temp_current_limit = of_property_read_bool(chip->client->dev.of_node, "enable_high_temp_current_limit");
 	chip->enable_headset_plugin_limit = of_property_read_bool(chip->client->dev.of_node, "enable_headset_plugin_limit");
 	chip->irq_gpio = of_get_named_gpio(chip->client->dev.of_node, "chg-irq-gpio", 0);
 	if (chip->irq_gpio <= 0) {
@@ -1886,11 +1863,11 @@ void sgm41512_get_chip_id(void)
 }
 
 extern int charger_ic_flag;
-
+extern int oplus_get_usb_status(void);
 static void do_sgm41512_threaded_irq_work(struct work_struct *data)
 {
 	struct chip_sgm41512 *chip = charger_ic;
-	int power_good, val_reg, hiz_status;
+	int power_good, val_reg, hiz_status, vbus;
 	if (!chip) {
 		pr_err("%s chip null,return\n", __func__);
 		return;
@@ -1902,15 +1879,28 @@ static void do_sgm41512_threaded_irq_work(struct work_struct *data)
 		return;
 	}
 
+	/* normal charger/usb set hiz enter */
 	sgm41512_read_reg(chip, REG00_SGM41512_ADDRESS, &hiz_status);
-	if (hiz_status&REG00_SGM41512_SUSPEND_MODE_MASK) {
-		pr_err("%s, hiz mode interrupt ignore\n", __func__);
-		return;
+	if ((hiz_status & REG00_SGM41512_SUSPEND_MODE_MASK) && (!oplus_get_usb_status())) {
+		vbus = battery_get_vbus();
+		/* vbus online and set sgm41512 to hiz mode */
+		if (vbus > CHARGER_VBUS_VOTLAGE_REF) {
+			pr_err("%s, hiz mode interrupt ignore vbus= %d\n", __func__, vbus);
+			return;
+		}
 	}
 
 	power_good = chip->pwr_gd;
 	sgm41512_read_reg(chip, REG0A_SGM41512_ADDRESS, &val_reg);
 	chip->pwr_gd = (val_reg &= REG0A_SGM41512_VBUS_GOOD_STAT_MASK) >> 7;
+	/* normal charger try read need wait 50ms */
+	vbus = battery_get_vbus();
+	if (!chip->pwr_gd && vbus > CHARGER_VBUS_VOTLAGE_REF) {
+		msleep(50);
+		sgm41512_read_reg(chip, REG0A_SGM41512_ADDRESS, &val_reg);
+		pr_err("%s, chip->pwr_gd = %d\n", __func__, chip->pwr_gd);
+		chip->pwr_gd = (val_reg &= REG0A_SGM41512_VBUS_GOOD_STAT_MASK) >> 7;
+	}
 	pr_err("%s, (%d:%d)\n", __func__, power_good, chip->pwr_gd);
 
 	if (chip->pwr_gd != power_good) {
@@ -1926,7 +1916,7 @@ static void do_sgm41512_threaded_irq_work(struct work_struct *data)
 		}
 
 		sgm41512_enable_chg_type_det(chip->pwr_gd);
-		if((chip->enable_high_temp_current_limit) || (chip->enable_headset_plugin_limit)) {
+		if(chip->enable_headset_plugin_limit) {
 			if(chip->pwr_gd) {
 				schedule_delayed_work(&charger_ic->check_ibat_work, round_jiffies_relative(msecs_to_jiffies(10000)));
 			} else {
@@ -2026,7 +2016,7 @@ static int sgm41512_driver_probe(struct i2c_client *client, const struct i2c_dev
 	pr_err("call OK!\n");
 	set_charger_ic(SGM41512);
 	sgm41512_dump_registers();
-	if((chip->enable_high_temp_current_limit) || (chip->enable_headset_plugin_limit)) {
+	if(chip->enable_headset_plugin_limit) {
 		INIT_DELAYED_WORK(&chip->check_ibat_work, sgm41512_check_ibat_work);
 	}
 	pr_info("SGM41512 charger driver probe successfully\n");

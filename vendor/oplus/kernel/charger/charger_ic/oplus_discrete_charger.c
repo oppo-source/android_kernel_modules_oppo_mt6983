@@ -962,6 +962,7 @@ void oplus_ccdetect_enable(void)
 
 	/* set DRP mode */
 	if (chg != NULL && chg->tcpc != NULL) {
+		pm_wakeup_dev_event(chg->dev, 2000, true);
 		tcpm_typec_change_role_postpone(chg->tcpc, TYPEC_ROLE_TRY_SNK, true);
 		pr_err("%s: set drp", __func__);
 	} else if (chg != NULL && chg->external_cclogic) {
@@ -987,6 +988,7 @@ void oplus_ccdetect_disable(void)
 
 	/* set SINK mode */
 	if (chg != NULL && chg->tcpc != NULL) {
+		pm_wakeup_dev_event(chg->dev, 2000, true);
 		tcpm_typec_change_role_postpone(chg->tcpc,TYPEC_ROLE_SNK, true);
 		pr_err("%s: set sink", __func__);
 	} else if (chg != NULL && chg->external_cclogic) {
@@ -2699,7 +2701,7 @@ static int discrete_charger_probe(struct platform_device *pdev)
 	}
 #endif
 #endif
-
+	device_init_wakeup(chg->dev, 1);
 	chg_err("discrete charger probed successfully\n");
 
 	return rc;

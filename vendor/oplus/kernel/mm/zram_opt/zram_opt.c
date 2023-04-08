@@ -14,9 +14,11 @@
 #include <trace/hooks/vmscan.h>
 #include <linux/swap.h>
 #include <linux/proc_fs.h>
-#if IS_ENABLED(CONFIG_OPLUS_MTK_OOM_REAPER)
+#if IS_ENABLED(CONFIG_OPLUS_OOM_REAPER_OPT)
 #include <trace/hooks/signal.h>
-#endif /* CONFIG_OPLUS_MTK_OOM_REAPER */
+#include <linux/mm.h>
+#include <linux/sched/task.h>
+#endif /* CONFIG_OPLUS_OOM_REAPER_OPT */
 
 static int g_direct_swappiness = 60;
 static int g_swappiness = 160;
@@ -120,16 +122,26 @@ static void balance_reclaim(void *unused, bool *balance_anon_file_reclaim)
 }
 #endif /* CONFIG_OPLUS_BALANCE_ANON_FILE_RECLAIM */
 
-#if IS_ENABLED(CONFIG_OPLUS_MTK_OOM_REAPER)
-static void reap_eligible(void *data, struct task_struct *task, bool *reap)
+#if IS_ENABLED(CONFIG_OPLUS_OOM_REAPER_OPT)
+#define REAPER_SZ (SZ_1M * 32 / PAGE_SIZE)
+static void android_vh_killed_process_handler(void *unused, struct task_struct *killer,
+                                                   struct task_struct *killee, bool *reap)
 {
-	/* TODO: Can this logic be moved to module params approach? */
-	if (!strcmp(task->comm, "lmkd") ||
-	    !strcmp(task->comm, "athena_killer")) {
-		*reap = true;
+	unsigned long pages = 0;
+
+	if (!strcmp(killer->comm, "lmkd") || !strcmp(killer->comm, "athena_killer") ||
+						!strcmp(killer->comm, "PreKillActionT")) {
+		task_lock(killee);
+		if (killee->mm)
+			pages = get_mm_counter(killee->mm, MM_ANONPAGES) +
+					get_mm_counter(killee->mm, MM_SWAPENTS);
+		task_unlock(killee);
+
+		if (pages > REAPER_SZ)
+			*reap = true;
 	}
 }
-#endif /* CONFIG_OPLUS_MTK_OOM_REAPER */
+#endif /*CONFIG_OPLUS_OOM_REAPER_OPT*/
 
 
 static int register_zram_opt_vendor_hooks(void)
@@ -157,13 +169,13 @@ static int register_zram_opt_vendor_hooks(void)
 	}
 #endif /* CONFIG_OPLUS_BALANCE_ANON_FILE_RECLAIM */
 
-#if IS_ENABLED(CONFIG_OPLUS_MTK_OOM_REAPER)
-	ret = register_trace_android_vh_process_killed(reap_eligible, NULL);
+#if IS_ENABLED(CONFIG_OPLUS_OOM_REAPER_OPT)
+	ret = register_trace_android_vh_killed_process(android_vh_killed_process_handler, NULL);
 	if (ret) {
-		pr_err("Failed to register process_killed hooks\n");
+		pr_err("Failed to register killed_process hooks\n");
 		return ret;
 	}
-#endif /* CONFIG_OPLUS_MTK_OOM_REAPER */
+#endif /*CONFIG_OPLUS_OOM_REAPER_OPT*/
 
 out:
 	return ret;
@@ -173,6 +185,9 @@ static void unregister_zram_opt_vendor_hooks(void)
 {
 	unregister_trace_android_vh_tune_swappiness(zo_set_swappiness, NULL);
 	unregister_trace_android_vh_tune_inactive_ratio(zo_set_inactive_ratio, NULL);
+#if IS_ENABLED(CONFIG_OPLUS_OOM_REAPER_OPT)
+	unregister_trace_android_vh_killed_process(android_vh_killed_process_handler, NULL);
+#endif /*CONFIG_OPLUS_OOM_REAPER_OPT*/
 
 	return;
 }

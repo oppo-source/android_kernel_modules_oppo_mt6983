@@ -76,6 +76,7 @@ int consys_conninfra_on_power_ctrl_mt6983(unsigned int enable)
 {
 	int ret = 0;
 
+	consys_check_ap2conn_mt6983();
 #if MTK_CONNINFRA_CLOCK_BUFFER_API_AVAILABLE
 	ret = consys_platform_spm_conn_ctrl_mt6983(enable);
 #else

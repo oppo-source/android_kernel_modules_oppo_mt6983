@@ -13,6 +13,12 @@ config OPLUS_FEATURE_ZRAM_OPT
 	help
 	  define this config to add oplus zram optimization feature
 
+config OPLUS_OOM_REAPER_OPT
+	tristate "oom reaper optimization"
+	default n
+	help
+	  define this config to add oplus oom reaper optimization feature
+
 config KSHRINK_SLABD
 	tristate "memload optimization"
 	default n
@@ -44,6 +50,12 @@ config MAPPED_PROTECT_ALL
 	help
 	  mapped_protect_all
 
+config LOOK_AROUND
+	tristate "memload optimization for look_around"
+	default n
+	help
+	  define this config to add oplus look_around memload optimization feature
+
 config PROCESS_RECLAIM_ENHANCE
 	tristate "Enable process reclaim enchance"
 	depends on PROC_FS
@@ -74,13 +86,6 @@ config DYNAMIC_TUNING_SWAPPINESS
 	  If the file pages too much, kswapd will reclaim more file pages,
 	  and support two levels.
 	  Say N if you not sure.
-
-config OPLUS_MTK_OOM_REAPER
-        bool "enable mtk oom reaper"
-	depends on OPLUS_FEATURE_ZRAM_OPT
-        default n
-        help
-          define this config to add oom reaper feature for mtk platform
 
 config OPLUS_BALANCE_ANON_FILE_RECLAIM
 	bool "During reclaim treat anon and file backed pages equally"
