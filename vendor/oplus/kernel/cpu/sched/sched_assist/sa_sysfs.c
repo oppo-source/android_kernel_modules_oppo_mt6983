@@ -566,12 +566,15 @@ static const struct proc_ops proc_debug_enabled_fops = {
 static int im_flag_set_handle(struct task_struct *task, int im_flag)
 {
 	struct oplus_task_struct *ots = get_oplus_task_struct(task);
+#ifdef CONFIG_LOCKING_PROTECT
 	unsigned long old_im;
+#endif
 
 	if (IS_ERR_OR_NULL(ots))
 		return 0;
-
+#ifdef CONFIG_LOCKING_PROTECT
 	old_im = ots->im_flag;
+#endif
 #ifdef CONFIG_OPLUS_CPU_AUDIO_PERF
 	oplus_sched_assist_audio_perf_addIm(task, im_flag);
 #endif
